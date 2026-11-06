@@ -15,14 +15,14 @@ import { classifyFailure } from './classifier.js';
 import { readConfig } from './config.js';
 import { doctor } from './doctor.js';
 import * as runners from './runners.js';
-import { Scheduler } from './scheduler.js';
+import { HostLoadError, Scheduler } from './scheduler.js';
 
 export { pullArtifact } from './artifacts.js';
 export { build } from './build.js';
 export { classifyFailure } from './classifier.js';
 export { configSchema } from './config.js';
 export * from './runners.js';
-export { Scheduler } from './scheduler.js';
+export { HostLoadError, Scheduler } from './scheduler.js';
 
 export async function dispatch(
   operation: string,
@@ -153,6 +153,14 @@ export async function dispatch(
           input as unknown as Parameters<typeof runners.reverse>[1],
         );
         break;
+      case 'snapshot':
+        result = await getScheduler().snapshot(
+          String(args.leaseId ?? ''),
+          typeof args.serial === 'string' ? args.serial : undefined,
+          String(args.action ?? '') as 'list' | 'save' | 'load' | 'delete',
+          typeof args.name === 'string' ? args.name : undefined,
+        );
+        break;
       default:
         throw new Error(`Unknown operation: ${operation}`);
     }
@@ -184,8 +192,12 @@ export async function dispatch(
     }
     summary = `${operation} ${status}`;
   } catch (error) {
-    status = 'error';
+    status = error instanceof HostLoadError ? 'blocked' : 'error';
     summary = error instanceof Error ? error.message : String(error);
+    if (error instanceof HostLoadError) {
+      classification = 'environment';
+      evidence = [{ cpuLoad: error.cpuLoad, maxCpuLoad: error.maxCpuLoad }];
+    }
     console.error(
       JSON.stringify({
         level: 'error',

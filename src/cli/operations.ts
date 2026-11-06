@@ -19,6 +19,7 @@ export const operations = [
   'logcat',
   'pull-artifact',
   'reverse',
+  'snapshot',
   'classify-failure',
 ] as const;
 

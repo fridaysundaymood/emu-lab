@@ -18,7 +18,7 @@ try {
   const result = await runMaestro(lab, {
     leaseId: lease.leaseId,
     packageName: 'dev.androidkit.fixture',
-    flows: ['e2e/maestro/clean.yaml'],
+    flows: ['e2e/maestro/01-launch.yaml'],
     artifactDir: '.android-kit/runs/example/emu-lab',
   });
   console.log(result);
@@ -29,3 +29,5 @@ try {
 ```
 
 Use `heartbeat(leaseId)` during long operations. `leaseGroup({profiles: [...]})` allocates a group, and `authorize(leaseId, serial)` verifies its members. The runners accept a lease ID and optional serial; callers must not substitute an independently discovered serial. `dispatch(command, args)` returns the shared result envelope and is the common CLI/MCP entry point. Use `build({projectRoot, runId, variant})` for cached builds and `classifyFailure` for deterministic evidence-based triage. Consult the exported TypeScript declarations for complete option and result types.
+
+Snapshots belong to the leased AVD and are removed on release. Call `lab.snapshot(leaseId, undefined, 'save', 'clean')`, then use `list`, `load`, or `delete` with the same lease; the CLI command `snapshot` and MCP tool `emu_lab_snapshot` accept `leaseId`, `action`, and `name`. Console authentication is required.

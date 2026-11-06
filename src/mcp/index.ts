@@ -41,6 +41,7 @@ const fields: Record<string, Record<string, string>> = {
   },
   'pull-artifact': { sourceRunId: 'string', artifact: 'string' },
   reverse: { devicePort: 'number', hostPort: 'number', remove: 'boolean' },
+  snapshot: { action: 'string', name: 'string' },
   'classify-failure': {
     log: 'string',
     hierarchy: 'string',

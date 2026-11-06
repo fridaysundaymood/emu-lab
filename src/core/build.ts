@@ -43,6 +43,7 @@ interface CacheRecord {
 const ignored: Record<string, true> = {
   '.git': true,
   '.gradle': true,
+  '.kotlin': true,
   '.android-kit': true,
   build: true,
   node_modules: true,
@@ -96,7 +97,12 @@ async function lock(path: string): Promise<() => Promise<void>> {
         }
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
-        if (Date.now() - (await stat(path)).mtimeMs > 60_000) {
+        const age = await stat(path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          throw error;
+        });
+        if (!age) continue;
+        if (Date.now() - age.mtimeMs > 60_000) {
           await rm(path, { recursive: true, force: true });
           continue;
         }
@@ -212,8 +218,17 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       if (process.platform === 'win32')
         await execFile(
           process.env.ComSpec ?? 'cmd.exe',
-          ['/d', '/s', '/c', wrapper, ...args],
-          { cwd: source, maxBuffer: 64 * 1024 * 1024 },
+          [
+            '/d',
+            '/s',
+            '/c',
+            `""${wrapper}" ${args.map((arg) => `"${arg}"`).join(' ')}"`,
+          ],
+          {
+            cwd: source,
+            maxBuffer: 64 * 1024 * 1024,
+            windowsVerbatimArguments: true,
+          },
         );
       else
         await execFile(wrapper, args, {

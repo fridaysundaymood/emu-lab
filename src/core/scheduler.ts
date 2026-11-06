@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { cpus, freemem, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,7 +16,7 @@ export interface DeviceProfile {
   api: number;
   ramMb: number;
   cores: number;
-  gpu: 'host' | 'swiftshader_indirect';
+  gpu: 'auto' | 'host' | 'swiftshader_indirect';
   root: boolean;
   locale: string;
   density: number;
@@ -24,26 +24,59 @@ export interface DeviceProfile {
 
 export const defaultProfiles: Record<string, DeviceProfile> = {
   default: {
-    image: 'system-images;android-35;default;x86_64',
-    api: 35,
-    ramMb: 4096,
-    cores: 3,
-    gpu: 'host',
+    image: 'system-images;android-36;google_apis_playstore;x86_64',
+    api: 36,
+    ramMb: 2048,
+    cores: 4,
+    gpu: 'auto',
     root: false,
     locale: 'en-US',
     density: 420,
   },
   software: {
-    image: 'system-images;android-35;default;x86_64',
-    api: 35,
-    ramMb: 4096,
-    cores: 3,
+    image: 'system-images;android-36;google_apis_playstore;x86_64',
+    api: 36,
+    ramMb: 2048,
+    cores: 4,
     gpu: 'swiftshader_indirect',
     root: false,
     locale: 'en-US',
     density: 420,
   },
 };
+
+export interface HealthEvent {
+  leaseId: string;
+  serial: string;
+  attempt: number;
+  stage: string;
+  timestamp: string;
+  elapsedMs: number;
+}
+
+export interface DiagnosticEvent {
+  leaseId: string;
+  serial: string;
+  attempt: number;
+  timestamp: string;
+  output: string;
+}
+
+class LocaleUnavailableError extends Error {}
+
+export class HostLoadError extends Error {
+  constructor(
+    public readonly cpuLoad: number | null,
+    public readonly maxCpuLoad: number,
+  ) {
+    super(
+      cpuLoad === null
+        ? 'CPU utilization could not be measured'
+        : `CPU utilization ${Math.round(cpuLoad * 100)}% exceeds the ${Math.round(maxCpuLoad * 100)}% boot threshold`,
+    );
+    this.name = 'HostLoadError';
+  }
+}
 
 export interface SchedulerOptions {
   databasePath: string;
@@ -53,6 +86,10 @@ export interface SchedulerOptions {
   allowInstall?: boolean;
   profiles?: Record<string, DeviceProfile>;
   bootTimeoutMs?: number;
+  headless?: boolean;
+  maxCpuLoad?: number;
+  onHealth?: (event: HealthEvent) => void;
+  onDiagnostics?: (event: DiagnosticEvent) => void;
 }
 export interface LeaseRequest {
   profile?: string;
@@ -101,7 +138,12 @@ export class Scheduler {
   private readonly home: string;
   private readonly profiles: Record<string, DeviceProfile>;
   private readonly bootTimeout: number;
+  private readonly headless: boolean;
   private readonly allowInstall: boolean;
+  private readonly onHealth: (event: HealthEvent) => void;
+  private readonly onDiagnostics: ((event: DiagnosticEvent) => void) | undefined;
+  private readonly maxCpuLoad: number;
+  private lastCpuLoad: number | null = null;
   private readonly ready: Promise<void>;
   private queued = 0;
   private timer: NodeJS.Timeout;
@@ -123,8 +165,24 @@ export class Scheduler {
       process.env.ANDROID_HOME ??
       '';
     this.allowInstall = options.allowInstall ?? false;
+    this.onDiagnostics = options.onDiagnostics;
     this.profiles = { ...defaultProfiles, ...options.profiles };
-    this.bootTimeout = options.bootTimeoutMs ?? 180_000;
+    this.bootTimeout = options.bootTimeoutMs ?? 300_000;
+    this.headless = options.headless ?? true;
+    this.maxCpuLoad = options.maxCpuLoad ?? 0.85;
+    if (
+      !Number.isFinite(this.maxCpuLoad) ||
+      this.maxCpuLoad <= 0 ||
+      this.maxCpuLoad > 1
+    )
+      throw new Error('maxCpuLoad must be greater than zero and at most one');
+    this.onHealth =
+      options.onHealth ??
+      ((event) => {
+        process.stderr.write(
+          `${JSON.stringify({ event: 'emulator_health', ...event })}\n`,
+        );
+      });
     this.home = resolve(dirname(options.databasePath), 'avd');
     if (options.databasePath !== ':memory:')
       mkdirSync(dirname(resolve(options.databasePath)), { recursive: true });
@@ -429,6 +487,37 @@ export class Scheduler {
     return { ttl, heartbeat };
   }
 
+  private async checkCpuLoad(): Promise<void> {
+    const before = cpus();
+    await delay(1000);
+    const after = cpus();
+    let total = 0;
+    let idle = 0;
+    if (before.length === after.length && before.length > 0) {
+      for (let i = 0; i < before.length; i++) {
+        const a = before[i]!.times,
+          b = after[i]!.times;
+        const idleDelta = b.idle - a.idle;
+        const totalDelta =
+          b.user -
+          a.user +
+          (b.nice - a.nice) +
+          (b.sys - a.sys) +
+          idleDelta +
+          (b.irq - a.irq);
+        if (idleDelta < 0 || totalDelta < idleDelta) {
+          total = 0;
+          break;
+        }
+        total += totalDelta;
+        idle += idleDelta;
+      }
+    }
+    this.lastCpuLoad = total > 0 ? 1 - idle / total : null;
+    if (this.lastCpuLoad === null || this.lastCpuLoad >= this.maxCpuLoad)
+      throw new HostLoadError(this.lastCpuLoad, this.maxCpuLoad);
+  }
+
   private async reserve(
     profiles: string[],
     ttl: number,
@@ -457,7 +546,7 @@ export class Scheduler {
         !Number.isInteger(profile.density) ||
         profile.density <= 0 ||
         !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*$/.test(profile.locale) ||
-        !['host', 'swiftshader_indirect'].includes(profile.gpu)
+        !['auto', 'host', 'swiftshader_indirect'].includes(profile.gpu)
       )
         throw new Error(`invalid profile: ${name}`);
     }
@@ -572,10 +661,26 @@ export class Scheduler {
     const tag = imageParts[2]!;
     await writeFile(
       join(dir, 'config.ini'),
-      `avd.ini.encoding=UTF-8\nAvdId=${row.avd}\nabi.type=${abi}\nhw.cpu.arch=${abi}\ntag.id=${tag}\nimage.sysdir.1=${imageParts.join('/')}/\nhw.ramSize=${profile.ramMb}\nhw.cpu.ncore=${profile.cores}\nhw.gpu.enabled=yes\nhw.gpu.mode=${profile.gpu}\nhw.lcd.density=${profile.density}\nhw.lcd.width=1080\nhw.lcd.height=1920\ndisk.dataPartition.size=6G\n`,
+      `avd.ini.encoding=UTF-8\nAvdId=${row.avd}\nabi.type=${abi}\nhw.cpu.arch=${abi}\ntag.id=${tag}\nPlayStore.enabled=${tag === 'google_apis_playstore' ? 'yes' : 'no'}\nimage.sysdir.1=${imageParts.join('/')}/\nhw.ramSize=${profile.ramMb}\nhw.cpu.ncore=${profile.cores}\nhw.gpu.enabled=yes\nhw.gpu.mode=${profile.gpu}\nhw.lcd.density=${profile.density}\nhw.lcd.width=1080\nhw.lcd.height=1920\ndisk.dataPartition.size=6G\n`,
     );
     let bootEvidence = '';
     for (let attempt = 0; attempt < 2; attempt++) {
+      await this.checkCpuLoad();
+      const started = Date.now();
+      let previousStage = '';
+      const report = (stage: string) => {
+        if (stage === previousStage) return;
+        previousStage = stage;
+        this.onHealth({
+          leaseId: row.lease_id,
+          serial: row.serial,
+          attempt: attempt + 1,
+          stage,
+          timestamp: new Date().toISOString(),
+          elapsedMs: Date.now() - started,
+        });
+      };
+      report(attempt ? 'cold_retry_start' : 'boot_start');
       const child = spawn(
         this.tool('emulator', 'emulator'),
         [
@@ -585,14 +690,14 @@ export class Scheduler {
           String(row.port),
           '-gpu',
           profile.gpu,
-          '-no-window',
+          ...(this.headless ? ['-no-window'] : []),
           '-no-snapshot',
           ...(attempt ? ['-no-snapshot-load', '-wipe-data'] : []),
         ],
         {
           env: { ...process.env, ANDROID_AVD_HOME: this.home },
           stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
+          windowsHide: this.headless,
         },
       );
       let exited = false;
@@ -604,6 +709,15 @@ export class Scheduler {
           diagnostics = (diagnostics + chunk).slice(-16_384);
         });
       }
+      const emitDiagnostics = async () => {
+        if (!this.onDiagnostics) return;
+        let token = '';
+        try { token = (await readFile(join(homedir(), '.emulator_console_auth_token'), 'utf8')).trim(); } catch {}
+        const output = token
+          ? diagnostics.split(token).join('[redacted]').replace(/(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi, '$1[redacted]')
+          : '[emulator output withheld: console token unavailable for redaction]';
+        this.onDiagnostics({ leaseId: row.lease_id, serial: row.serial, attempt: attempt + 1, timestamp: new Date().toISOString(), output });
+      };
       let exitDetails = '';
       child.on('exit', (code, signal) => {
         exitDetails = `exit code ${code}, signal ${signal}`;
@@ -634,11 +748,12 @@ export class Scheduler {
           }
           await delay(250);
         }
-        if (!adopted)
-          throw new Error(
-            'emulator child identity could not be established; device quarantined',
-          );
+        if (!adopted) {
+          await emitDiagnostics();
+          throw new Error('emulator child identity could not be established; device quarantined');
+        }
       }
+      report('verifying_ownership');
       const end = Date.now() + this.bootTimeout;
       let healthEvidence = 'waiting for verified emulator ownership';
       while (
@@ -654,6 +769,7 @@ export class Scheduler {
         }
         try {
           healthEvidence = 'checking boot completion';
+          report('checking_boot_completion');
           const adb = this.tool('platform-tools', 'adb');
           const boot = await this.command(
             adb,
@@ -666,12 +782,14 @@ export class Scheduler {
             continue;
           }
           healthEvidence = 'checking package manager';
+          report('checking_package_manager');
           await this.command(
             adb,
             ['-s', row.serial, 'shell', 'pm', 'path', 'android'],
             5000,
           );
           healthEvidence = 'checking System UI';
+          report('checking_system_ui');
           const windows = await this.command(
             adb,
             ['-s', row.serial, 'shell', 'dumpsys', 'window', 'windows'],
@@ -682,12 +800,14 @@ export class Scheduler {
           )
             throw new Error('System UI is not responding');
           healthEvidence = 'unlocking screen';
+          report('unlocking_screen');
           await this.command(
             adb,
             ['-s', row.serial, 'shell', 'input', 'keyevent', '82'],
             5000,
           );
           healthEvidence = 'checking screen lock';
+          report('checking_screen_lock');
           const policy = await this.command(
             adb,
             ['-s', row.serial, 'shell', 'dumpsys', 'window', 'policy'],
@@ -696,6 +816,7 @@ export class Scheduler {
           if (/mShowingLockscreen=true|isStatusBarKeyguard=true/.test(policy))
             throw new Error('screen remains locked');
           healthEvidence = 'checking root requirement';
+          report('checking_root');
           if (profile.root) {
             await this.command(adb, ['-s', row.serial, 'root'], 10_000);
             if (
@@ -710,19 +831,19 @@ export class Scheduler {
               throw new Error('profile requires root');
           }
           healthEvidence = 'setting locale';
-          await this.command(
-            adb,
-            [
-              '-s',
-              row.serial,
-              'shell',
-              'setprop',
-              'persist.sys.locale',
-              profile.locale,
-            ],
-            5000,
-          );
+          report('setting_locale');
+          const currentLocale = (await this.command(adb, ['-s', row.serial, 'shell', 'getprop', 'persist.sys.locale'], 5000)).trim();
+          if (currentLocale.toLowerCase() !== profile.locale.toLowerCase()) {
+            try {
+              await this.command(adb, ['-s', row.serial, 'shell', 'setprop', 'persist.sys.locale', profile.locale], 5000);
+              const updated = (await this.command(adb, ['-s', row.serial, 'shell', 'getprop', 'persist.sys.locale'], 5000)).trim();
+              if (updated.toLowerCase() !== profile.locale.toLowerCase()) throw new Error('locale was not changed');
+            } catch {
+              throw new LocaleUnavailableError(`requested locale ${profile.locale} cannot be set on this image`);
+            }
+          }
           healthEvidence = 'setting display density';
+          report('setting_density');
           await this.command(
             adb,
             [
@@ -735,8 +856,12 @@ export class Scheduler {
             ],
             5000,
           );
+          report('ready');
+          await emitDiagnostics();
           return;
         } catch (error) {
+          if (error instanceof LocaleUnavailableError) { await emitDiagnostics(); throw error; }
+          report(`failed_${previousStage}`);
           healthEvidence =
             `${healthEvidence}: ${error instanceof Error ? error.message : String(error)}`.slice(
               0,
@@ -746,6 +871,8 @@ export class Scheduler {
         }
       }
       if (adopted && !this.pidAlive(row.pid)) exited = true;
+      report(exited ? 'process_exited' : 'boot_timeout');
+      await emitDiagnostics();
       if (exited) await delay(100);
       let token = '';
       try {
@@ -757,7 +884,7 @@ export class Scheduler {
         ).trim();
       } catch {}
       bootEvidence =
-        `${exitDetails}\n${token ? healthEvidence.split(token).join('[redacted]') : healthEvidence}\n${token ? diagnostics.split(token).join('[redacted]') : diagnostics}`.replace(
+        `${exitDetails}\n${token ? healthEvidence.split(token).join('[redacted]') : healthEvidence}\n${token ? diagnostics.split(token).join('[redacted]') : '[emulator output withheld: console token unavailable for redaction]'}`.replace(
           /(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi,
           '$1[redacted]',
         );
@@ -947,6 +1074,136 @@ export class Scheduler {
     }
   }
 
+  async snapshot(
+    leaseId: string,
+    serial: string | undefined,
+    action: 'list' | 'save' | 'load' | 'delete',
+    name?: string,
+  ): Promise<string> {
+    if (
+      !['list', 'save', 'load', 'delete'].includes(action) ||
+      (action === 'list'
+        ? name !== undefined
+        : !name || !/^[A-Za-z0-9_.-]{1,80}$/.test(name))
+    )
+      throw new Error('invalid snapshot action or name');
+    return this.withLease(leaseId, serial, async (authorized, signal) => {
+      let token: string;
+      try {
+        token = (
+          await readFile(
+            join(homedir(), '.emulator_console_auth_token'),
+            'utf8',
+          )
+        ).trim();
+      } catch {
+        throw new Error(
+          'emulator console authentication token is unavailable; restore the local console token',
+        );
+      }
+      if (!token || /[\r\n]/.test(token))
+        throw new Error('emulator console authentication token is invalid');
+      const row = this.rows(
+        "SELECT * FROM lab_devices WHERE lease_id=? AND serial=? AND state='active'",
+        leaseId,
+        authorized,
+      )[0];
+      if (!row || !(await this.verified(row)))
+        throw new Error('emulator ownership cannot be verified');
+      const socket = createConnection({ host: '127.0.0.1', port: row.port });
+      socket.pause();
+      const {
+        promise,
+        resolve: finish,
+        reject,
+      } = Promise.withResolvers<string>();
+      let buffer = '';
+      let phase = 0;
+      const abort = () => {
+        reject(new Error('lease released during snapshot operation'));
+        socket.destroy();
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+      socket.setTimeout(120_000, () => {
+        reject(new Error('emulator console timed out'));
+        socket.destroy();
+      });
+      socket.on('error', () =>
+        reject(new Error('emulator console connection failed')),
+      );
+      socket.on('close', () =>
+        reject(
+          new Error(
+            'emulator console closed before completing the snapshot operation',
+          ),
+        ),
+      );
+      socket.on('connect', () => {
+        void this.verified(row).then(
+          (verified) => {
+            if (!verified || signal.aborted) {
+              reject(new Error('emulator ownership cannot be verified'));
+              socket.destroy();
+              return;
+            }
+            socket.resume();
+          },
+          () => {
+            reject(new Error('emulator ownership cannot be verified'));
+            socket.destroy();
+          },
+        );
+      });
+      socket.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString('utf8');
+        if (buffer.length > 1_000_000) {
+          reject(new Error('emulator console response too large'));
+          socket.destroy();
+          return;
+        }
+        const match = /(?:^|\r?\n)(OK|KO(?:[^\r\n]*)?)\r?\n/.exec(buffer);
+        if (!match) return;
+        const response = buffer.slice(0, match.index).trim();
+        buffer = buffer.slice(match.index + match[0].length);
+        if (match[1] !== 'OK') {
+          reject(new Error('emulator console rejected the snapshot operation'));
+          socket.destroy();
+          return;
+        }
+        if (phase === 0) {
+          phase = 1;
+          socket.write(`auth ${token}\n`);
+        } else if (phase === 1) {
+          phase = 2;
+          void this.verified(row).then(
+            (verified) => {
+              if (!verified || signal.aborted) {
+                reject(new Error('emulator ownership cannot be verified'));
+                socket.destroy();
+                return;
+              }
+              socket.write(`avd snapshot ${action}${name ? ` ${name}` : ''}\n`);
+            },
+            () => {
+              reject(new Error('emulator ownership cannot be verified'));
+              socket.destroy();
+            },
+          );
+        } else {
+          finish(response.split(token).join('[redacted]'));
+          socket.end();
+        }
+      });
+      try {
+        return await promise;
+      } finally {
+        signal.removeEventListener('abort', abort);
+        socket.destroy();
+      }
+    });
+  }
+
   async release(leaseId: string): Promise<void> {
     await this.ready;
     const rows = this.transaction(() => {
@@ -968,6 +1225,8 @@ export class Scheduler {
   async status(): Promise<{
     budget: number;
     queued: number;
+    cpuLoad: number | null;
+    maxCpuLoad: number;
     devices: Array<{
       leaseId: string;
       serial: string;
@@ -982,6 +1241,8 @@ export class Scheduler {
     return {
       budget: this.budget,
       queued: this.queued,
+      cpuLoad: this.lastCpuLoad,
+      maxCpuLoad: this.maxCpuLoad,
       devices: this.rows('SELECT * FROM lab_devices').map((row) => ({
         leaseId: row.lease_id,
         serial: row.serial,

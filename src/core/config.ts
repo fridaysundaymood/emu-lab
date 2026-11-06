@@ -17,6 +17,8 @@ export const configSchema = {
     maestroPath: { type: 'string', minLength: 1 },
     adbPath: { type: 'string', minLength: 1 },
     bootTimeoutMs: { type: 'integer', minimum: 1 },
+    headless: { type: 'boolean' },
+    maxCpuLoad: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
     profiles: {
       type: 'object',
       additionalProperties: {
@@ -41,7 +43,7 @@ export const configSchema = {
           api: { type: 'integer', minimum: 1 },
           ramMb: { type: 'integer', minimum: 1 },
           cores: { type: 'integer', minimum: 1 },
-          gpu: { enum: ['host', 'swiftshader_indirect'] },
+          gpu: { enum: ['auto', 'host', 'swiftshader_indirect'] },
           root: { type: 'boolean' },
           locale: { type: 'string', minLength: 2 },
           density: { type: 'integer', minimum: 1 },
@@ -60,6 +62,8 @@ export interface LabConfig {
   maestroPath?: string;
   adbPath?: string;
   bootTimeoutMs?: number;
+  headless?: boolean;
+  maxCpuLoad?: number;
   profiles?: Record<string, DeviceProfile>;
 }
 
