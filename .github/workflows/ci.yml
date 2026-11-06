@@ -1,0 +1,31 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  checks:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: emu-lab
+      - uses: actions/checkout@v4
+        with:
+          repository: fridaysundaymood/android-kit
+          path: android-kit
+      - uses: actions/checkout@v4
+        with:
+          repository: fridaysundaymood/kit-fixture-app
+          path: kit-fixture-app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+        working-directory: android-kit
+      - run: npm run build
+        working-directory: android-kit
+      - run: npm ci
+        working-directory: emu-lab
+      - run: npm run lint && npm run build && npm test
+        working-directory: emu-lab

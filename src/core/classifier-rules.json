@@ -1,0 +1,123 @@
+{
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "isolated-rerun-passed",
+      "precedence": 1000,
+      "classification": "test",
+      "status": "flaky",
+      "all": [{ "source": "fact", "pattern": "isolatedRerunPassed" }]
+    },
+    {
+      "id": "device-offline",
+      "precedence": 900,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "device (?:is )?offline|no devices? (?:found|available)"
+        }
+      ]
+    },
+    {
+      "id": "system-ui-anr",
+      "precedence": 890,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "ANR in com\\.android\\.systemui|system ui (?:isn't responding|not responding|ANR)"
+        }
+      ]
+    },
+    {
+      "id": "incomplete-boot",
+      "precedence": 880,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "boot (?:incomplete|timed out|timeout)|sys\\.boot_completed[=: ]+0"
+        }
+      ]
+    },
+    {
+      "id": "install-failure",
+      "precedence": 870,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "INSTALL_FAILED_[A-Z_]+|failed to install"
+        }
+      ]
+    },
+    {
+      "id": "emulator-death",
+      "precedence": 860,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "emulator (?:process )?(?:died|exited|terminated)"
+        }
+      ]
+    },
+    {
+      "id": "host-load",
+      "precedence": 850,
+      "classification": "environment",
+      "all": [
+        {
+          "source": "log",
+          "pattern": "excessive host load|host (?:cpu|memory) (?:exhausted|overloaded)"
+        }
+      ]
+    },
+    {
+      "id": "app-anr",
+      "precedence": 800,
+      "classification": "app",
+      "all": [{ "source": "log", "pattern": "ANR in {{appPackage}}(?:\\s|$)" }]
+    },
+    {
+      "id": "app-crash",
+      "precedence": 790,
+      "classification": "app",
+      "all": [
+        { "source": "log", "pattern": "FATAL EXCEPTION" },
+        {
+          "source": "log",
+          "pattern": "(?:Process: |at ){{appPackage}}(?:[.:\\s]|$)"
+        }
+      ]
+    },
+    {
+      "id": "reset-state",
+      "precedence": 700,
+      "classification": "test",
+      "all": [
+        { "source": "fact", "pattern": "resetExpected" },
+        { "source": "log", "pattern": "assert(?:ion|ionerror| failed)" }
+      ]
+    },
+    {
+      "id": "changed-copy",
+      "precedence": 690,
+      "classification": "test",
+      "all": [
+        { "source": "fact", "pattern": "selectorMissing" },
+        { "source": "hierarchy", "pattern": "{{expectedScreen}}" }
+      ]
+    },
+    {
+      "id": "app-assertion",
+      "precedence": 600,
+      "classification": "app",
+      "all": [
+        { "source": "log", "pattern": "assert(?:ion|ionerror| failed)" },
+        { "source": "hierarchy", "pattern": "{{expectedScreen}}" }
+      ]
+    }
+  ]
+}

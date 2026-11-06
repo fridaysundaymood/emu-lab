@@ -1,39 +1,43 @@
 # emu-lab
 
-Android emulator testing with isolated device leases and structured results.
+Android emulator testing with leased devices, cached builds, device-state controls and evidence-based failure classification. The package provides a Node 24 TypeScript library, CLI and tools-only MCP server. See [the implementation plan](IMPLEMENTATION_PLAN.md) for the full intended behavior and [the API guide](docs/api.md) for in-process use.
 
-emu-lab is planned as a TypeScript library, CLI, and thin MCP server. It will run instrumentation tests, Maestro flows, and release smoke tests and return logs, screenshots, and evidence-backed failure classifications.
+## Install from source
 
-Part of [android-kit](https://github.com/fridaysundaymood/android-kit), a toolkit combining five tools for end-to-end Android development. Works on its own; no other kit tool required.
+Clone `android-kit` and `emu-lab` as sibling directories. In `android-kit`, run `npm install && npm run build`. In `emu-lab`, run `npm install && npm run build`. Android SDK tools, a compatible system image, JDK 21, hardware virtualization and Maestro 2.12.x are required for device workflows. `JAVA_HOME` must select JDK 21 for builds that target Java 21.
 
-## Status
+```sh
+npx emu-lab doctor --json
+npx emu-lab lab-status --json
+npx emu-lab lease-device --profile software --json
+npx emu-lab release-device --lease-id LEASE_ID --json
+```
 
-> **Planning stage: there is no code to install yet.** This repo holds the design in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). The first milestone covers device leasing, host resource budgets, emulator profiles, boot health checks, and crash recovery.
+Options accept kebab-case flags; JSON objects and arrays can be passed as JSON strings. Each command returns the shared result envelope. Exit codes are 0 for pass, 1 for fail or flaky, and 2 for blocked, unsupported or error. Artifacts are stored below `.android-kit/runs/<run-id>/emu-lab/`. No telemetry is collected.
 
-## Who it's for
+A generic MCP client can start the stdio server with an entry such as:
 
-- Developers and agents using any MCP client or the standalone CLI in CI.
-- Developers who run several emulators at once and lose time to overloaded hosts, leftover app state, or flaky failures.
+```json
+{
+  "mcpServers": {
+    "emu-lab": {
+      "command": "node",
+      "args": ["/path/to/emu-lab/dist/mcp/index.js"]
+    }
+  }
+}
+```
 
-## What it will do
+Optional project configuration is read from `android-kit.yaml`:
 
-| Capability | Details |
-|---|---|
-| Device leasing | Exclusive emulators with heartbeats and timeouts; respects a RAM/CPU budget; never touches emulators you started yourself |
-| Device profiles | YAML profiles for system image, API level, RAM, GPU, locale, density; boot health checks with automatic retry |
-| Build cache | Isolated Gradle builds keyed by source tree; the same build is reused, never rebuilt in parallel |
-| Clean app state | Resets data, permissions, locale, font scale, density, dark mode, and network before every run |
-| Test runners | Instrumentation (JUnit XML), Maestro flows (with one isolated rerun to detect flakiness), release smoke tests |
-| Failure triage | Versioned, data-driven `app` / `test` / `environment` rules, with evidence and artifacts; isolated rerun passes are `flaky` |
-| Multi-device | Lease groups of devices for scenarios that need several phones |
+```yaml
+emuLab:
+  budget: 1
+  denySerials: []
+  allowInstall: false
+```
 
-## Out of scope
-
-Cloud device farms, iOS, and provisioning physical devices (beyond adb passthrough).
-
-## Contributing
-
-The design is open for feedback. Open an issue to question scope, suggest a feature, or discuss an approach before sending a pull request. Use synthetic examples only: no private app code, production data, or credentials.
+Never use a lease to control an independently owned emulator. Host GPU support varies with drivers and headless environments; select the software profile explicitly if host GPU is unavailable. Linux requires accessible KVM, Windows requires supported WHPX/AEHD virtualization, and macOS requires HVF. Emulator console authentication must remain enabled. Use synthetic data only.
 
 ## License
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning only. The library, CLI, server, profiles, and tests described here are not implemented.
+Implementation in progress. Core, adapters, build cache and classifier are present; milestone exit criteria, including real-device runner integration and recovery coverage, remain unverified.
 
 ## Problem and goal
 
@@ -25,7 +25,18 @@ Implement a TypeScript core library on Node.js LTS, distributed as an npm packag
 Every CLI command accepts `--json` and emits one result envelope conforming to the published JSON Schema package `kit-schema` (v1):
 
 ```json
-{ "schema_version": "1", "tool": "emu-lab", "operation": "lab_status", "run_id": "<run-id>", "status": "pass", "summary": "Lab status retrieved", "evidence": [], "artifacts": [], "started_at": "<timestamp>", "duration_ms": 0 }
+{
+  "schema_version": "1",
+  "tool": "emu-lab",
+  "operation": "lab_status",
+  "run_id": "<run-id>",
+  "status": "pass",
+  "summary": "Lab status retrieved",
+  "evidence": [],
+  "artifacts": [],
+  "started_at": "<timestamp>",
+  "duration_ms": 0
+}
 ```
 
 The schema also allows optional `classification` with `app`, `test`, `environment`, or `config`. Status is `pass`, `fail`, `flaky`, `blocked`, `unsupported`, or `error`: `fail` means the thing under test failed, `error` means the tool itself failed, `blocked` means a precondition or policy refused the operation, and `unsupported` means a capability is unavailable, never silently skipped. `flaky` identifies a failure that passes its isolated rerun. CLI exit codes are 0 for `pass`, 1 for `fail`, and 2 for `error` or `blocked`; document `flaky` as 1 and `unsupported` as 2 so automation cannot mistake either for a clean pass. The envelope carries operation-specific data as defined by the shared schema; do not invent extra top-level fields if the schema forbids them.
@@ -83,26 +94,26 @@ Provide `emu_lab_lease_group` under the same host budget, plus lease-scoped adb 
 
 Each row maps the CLI command `emu-lab <command> --json` to its equivalent MCP tool. Device-scoped commands require the lease ID; group-scoped commands require the group lease and relevant members.
 
-| CLI command | MCP tool | Purpose |
-|---|---|---|
-| `doctor` | `emu_lab_doctor` | Check prerequisites and fixes |
-| `lab-status` | `emu_lab_lab_status` | Budget, leases, queued requests, host load |
-| `lease-device` | `emu_lab_lease_device` | Lease a device with TTL |
-| `heartbeat` | `emu_lab_heartbeat` | Renew a lease heartbeat |
-| `release-device` | `emu_lab_release_device` | Release a device or group |
-| `lease-group` | `emu_lab_lease_group` | Atomically lease a device group |
-| `build` | `emu_lab_build` | Cached, isolated variant builds |
-| `install` | `emu_lab_install` | Install an artifact |
-| `reset-app` | `emu_lab_reset_app` | Reset app and device state |
-| `set-device-state` | `emu_lab_set_device_state` | Apply declared device state |
-| `run-instrumentation` | `emu_lab_run_instrumentation` | Run instrumentation tests |
-| `run-maestro` | `emu_lab_run_maestro` | Run Maestro flows |
-| `smoke-release` | `emu_lab_smoke_release` | Run release smoke checks |
-| `screen` | `emu_lab_screen` | Capture hierarchy and screenshot |
-| `logcat` | `emu_lab_logcat` | Collect device logs |
-| `pull-artifact` | `emu_lab_pull_artifact` | Retrieve a run artifact |
-| `reverse` | `emu_lab_reverse` | Configure lease-scoped adb reverse routing |
-| `classify-failure` | `emu_lab_classify_failure` | Re-run triage on a stored failure |
+| CLI command           | MCP tool                      | Purpose                                    |
+| --------------------- | ----------------------------- | ------------------------------------------ |
+| `doctor`              | `emu_lab_doctor`              | Check prerequisites and fixes              |
+| `lab-status`          | `emu_lab_lab_status`          | Budget, leases, queued requests, host load |
+| `lease-device`        | `emu_lab_lease_device`        | Lease a device with TTL                    |
+| `heartbeat`           | `emu_lab_heartbeat`           | Renew a lease heartbeat                    |
+| `release-device`      | `emu_lab_release_device`      | Release a device or group                  |
+| `lease-group`         | `emu_lab_lease_group`         | Atomically lease a device group            |
+| `build`               | `emu_lab_build`               | Cached, isolated variant builds            |
+| `install`             | `emu_lab_install`             | Install an artifact                        |
+| `reset-app`           | `emu_lab_reset_app`           | Reset app and device state                 |
+| `set-device-state`    | `emu_lab_set_device_state`    | Apply declared device state                |
+| `run-instrumentation` | `emu_lab_run_instrumentation` | Run instrumentation tests                  |
+| `run-maestro`         | `emu_lab_run_maestro`         | Run Maestro flows                          |
+| `smoke-release`       | `emu_lab_smoke_release`       | Run release smoke checks                   |
+| `screen`              | `emu_lab_screen`              | Capture hierarchy and screenshot           |
+| `logcat`              | `emu_lab_logcat`              | Collect device logs                        |
+| `pull-artifact`       | `emu_lab_pull_artifact`       | Retrieve a run artifact                    |
+| `reverse`             | `emu_lab_reverse`             | Configure lease-scoped adb reverse routing |
+| `classify-failure`    | `emu_lab_classify_failure`    | Re-run triage on a stored failure          |
 
 Ship plain Markdown skills in `SKILL.md` frontmatter format and an `AGENTS.md` snippet. Every skill step names both its CLI command and MCP equivalent from this table; instructions must work with any agent or with plain CI and never rely on a particular client.
 
