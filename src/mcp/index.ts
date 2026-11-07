@@ -10,6 +10,7 @@ const fields: Record<string, Record<string, string>> = {
   'lease-group': { profiles: 'array', ttlMs: 'number', heartbeatMs: 'number' },
   build: {
     variant: 'string',
+    testVariant: 'string',
     commit: 'string',
     module: 'string',
     release: 'boolean',

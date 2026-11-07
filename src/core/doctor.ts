@@ -24,13 +24,21 @@ async function command(file: string, args: string[]): Promise<string> {
     const result = await exec(
       process.env.ComSpec ?? 'cmd.exe',
       ['/d', '/s', '/c', `"${line}"`],
-      { timeout: 15000, windowsHide: true },
+      { timeout: 15000, windowsHide: true, windowsVerbatimArguments: true },
     );
     return `${result.stdout}\n${result.stderr}`.trim();
   }
   const result = await exec(file, args, { timeout: 15000, windowsHide: true });
   return `${result.stdout}\n${result.stderr}`.trim();
 }
+/** Supported Maestro CLI range (inclusive); matches the documented contract for device workflows. */
+export function maestroVersionSupported(output: string): boolean {
+  const match = /\b(\d+)\.(\d+)\.(\d+)\b/.exec(output);
+  if (!match) return false;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major === 2 && minor >= 11 && minor <= 12;
+}
+
 export async function maestroExecutable(config: LabConfig): Promise<string> {
   if (config.maestroPath) return config.maestroPath;
   if (process.env.MAESTRO_BIN) return process.env.MAESTRO_BIN;
@@ -181,8 +189,8 @@ export async function doctor(
       'maestro',
       maestro,
       ['--version'],
-      'Install Maestro 2.12.x and make it available on PATH.',
-      (output) => /\b2\.12\.\d+\b/.test(output),
+      'Install Maestro 2.11.x or 2.12.x and make it available on PATH or at ~/.maestro/maestro/bin.',
+      maestroVersionSupported,
     ).then((check) => ({ ...check, path: maestro })),
     checkPackage(sdk, 'platform-tools', ['platform-tools']),
     checkPackage(sdk, 'emulator-package', ['emulator']),

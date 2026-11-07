@@ -43,7 +43,7 @@ Scheduler.prototype.checkCpuLoad = async () => {};
 Scheduler.prototype.portFree = async () => true;
 Scheduler.prototype.verified = async () => true;
 Scheduler.prototype.emulatorChild = async (_row, launcher) => launcher;
-Scheduler.prototype.command = async (_file, args) => args.includes('sys.boot_completed') ? '1' : args.includes('persist.sys.locale') ? 'en-US' : '';
+Scheduler.prototype.command = async (_file, args) => args.includes('echo') ? 'ok' : args.includes('sys.boot_completed') ? '1' : args.includes('persist.sys.locale') ? 'en-US' : '';
 `,
     );
     const output = execFileSync(

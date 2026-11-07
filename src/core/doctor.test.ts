@@ -32,3 +32,34 @@ it('prefers explicit and environment paths, then PATH, then the standard install
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('accepts the documented Maestro version range and rejects versions outside it', async () => {
+  const { maestroVersionSupported } = await import('./doctor.js');
+  for (const version of ['2.11.0', '2.12.0', '2.12.1']) {
+    expect(maestroVersionSupported(`maestro ${version}`)).toBe(true);
+  }
+  for (const version of ['2.10.9', '2.13.0', '3.0.0']) {
+    expect(maestroVersionSupported(`maestro ${version}`)).toBe(false);
+  }
+});
+
+it('runs a batch-file version probe from a path containing spaces', async () => {
+  if (process.platform !== 'win32') return;
+  const { doctor } = await import('./doctor.js');
+  const root = await mkdtemp(join(tmpdir(), 'maestro with space-'));
+  const oldPath = process.env.MAESTRO_BIN;
+  try {
+    const bin = join(root, 'maestro.bat');
+    await writeFile(bin, '@echo off\r\necho 2.11.0\r\n');
+    process.env.MAESTRO_BIN = bin;
+    const result = await doctor({});
+    expect(result.checks.find((c) => c.tool === 'maestro')).toMatchObject({
+      available: true,
+      version: '2.11.0',
+    });
+  } finally {
+    if (oldPath === undefined) delete process.env.MAESTRO_BIN;
+    else process.env.MAESTRO_BIN = oldPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
