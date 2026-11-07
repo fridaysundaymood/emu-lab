@@ -59,7 +59,7 @@ export function toolDefinitions(
   } = {},
 ) {
   return operations.map((operation) => ({
-    name: `emu_lab_${operation.replaceAll('-', '_')}`,
+    name: `emu_lab_${operation === 'lab-status' ? 'status' : operation.replaceAll('-', '_')}`,
     description: `Run emu-lab ${operation}. Arguments match the corresponding CLI options in camelCase.`,
     inputSchema: {
       type: 'object' as const,

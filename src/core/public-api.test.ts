@@ -13,6 +13,12 @@ describe('public API', () => {
     expect(api.toolDefinitions().map((tool) => tool.name)).toContain(
       'emu_lab_doctor',
     );
+    expect(api.toolDefinitions().map((tool) => tool.name)).toContain(
+      'emu_lab_status',
+    );
+    expect(api.toolDefinitions().map((tool) => tool.name)).not.toContain(
+      'emu_lab_lab_status',
+    );
     expect(typeof api.doctor).toBe('function');
     const dispatcher = vi.fn().mockResolvedValue({ status: 'pass' });
     const tool = api

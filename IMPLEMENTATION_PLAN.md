@@ -97,7 +97,7 @@ Each row maps the CLI command `emu-lab <command> --json` to its equivalent MCP t
 | CLI command           | MCP tool                      | Purpose                                    |
 | --------------------- | ----------------------------- | ------------------------------------------ |
 | `doctor`              | `emu_lab_doctor`              | Check prerequisites and fixes              |
-| `lab-status`          | `emu_lab_lab_status`          | Budget, leases, queued requests, host load |
+| `lab-status`          | `emu_lab_status`              | Budget, leases, queued requests, host load |
 | `lease-device`        | `emu_lab_lease_device`        | Lease a device with TTL                    |
 | `heartbeat`           | `emu_lab_heartbeat`           | Renew a lease heartbeat                    |
 | `release-device`      | `emu_lab_release_device`      | Release a device or group                  |

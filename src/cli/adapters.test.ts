@@ -22,7 +22,8 @@ describe('CLI and MCP adapters', () => {
   it('exposes the same operations', () => {
     expect(tools.map((tool) => tool.name)).toEqual(
       operations.map(
-        (operation) => `emu_lab_${operation.replaceAll('-', '_')}`,
+        (operation) =>
+          `emu_lab_${operation === 'lab-status' ? 'status' : operation.replaceAll('-', '_')}`,
       ),
     );
   });
