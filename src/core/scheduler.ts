@@ -830,8 +830,24 @@ export class Scheduler {
           );
           if (
             /Application Not Responding.*(?:System UI|systemui)/i.test(windows)
-          )
-            throw new Error('System UI is not responding');
+          ) {
+            await this.command(
+              adb,
+              ['-s', row.serial, 'shell', 'input', 'keyevent', '4'],
+              5000,
+            );
+            const recheck = await this.command(
+              adb,
+              ['-s', row.serial, 'shell', 'dumpsys', 'window', 'windows'],
+              5000,
+            );
+            if (
+              /Application Not Responding.*(?:System UI|systemui)/i.test(
+                recheck,
+              )
+            )
+              throw new Error('System UI is not responding');
+          }
           healthEvidence = 'unlocking screen';
           report('unlocking_screen');
           await this.command(
