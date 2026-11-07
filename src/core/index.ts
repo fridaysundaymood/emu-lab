@@ -46,7 +46,10 @@ export async function dispatch(
   let scheduler: Scheduler | undefined;
   try {
     checkSchemaMajor(1);
-    const config = await readConfig(root);
+    const config = await readConfig(
+      root,
+      typeof args.configPath === 'string' ? args.configPath : undefined,
+    );
     const artifactDir = runArtifactDir(root, runId, 'emu-lab');
     await mkdir(artifactDir, { recursive: true });
     const schedulerOptions = {

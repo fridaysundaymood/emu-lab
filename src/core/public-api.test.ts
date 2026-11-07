@@ -14,5 +14,19 @@ describe('public API', () => {
       'emu_lab_doctor',
     );
     expect(typeof api.doctor).toBe('function');
+    const dispatcher = vi.fn().mockResolvedValue({ status: 'pass' });
+    const tool = api
+      .toolDefinitions({
+        projectRoot: 'root',
+        configPath: 'kit.yaml',
+        dispatcher,
+      })
+      .find((entry) => entry.name === 'emu_lab_doctor');
+    expect(tool).toBeDefined();
+    await tool?.handler({ projectRoot: 'override' });
+    expect(dispatcher).toHaveBeenCalledWith('doctor', {
+      projectRoot: 'override',
+      configPath: 'kit.yaml',
+    });
   }, 30000);
 });

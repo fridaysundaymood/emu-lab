@@ -51,7 +51,13 @@ const fields: Record<string, Record<string, string>> = {
   },
 };
 
-export function toolDefinitions(run?: Dispatcher) {
+export function toolDefinitions(
+  options: {
+    projectRoot?: string;
+    configPath?: string;
+    dispatcher?: Dispatcher;
+  } = {},
+) {
   return operations.map((operation) => ({
     name: `emu_lab_${operation.replaceAll('-', '_')}`,
     description: `Run emu-lab ${operation}. Arguments match the corresponding CLI options in camelCase.`,
@@ -76,7 +82,20 @@ export function toolDefinitions(run?: Dispatcher) {
       ),
       additionalProperties: true,
     },
-    handler: (input: Record<string, unknown>) => invoke(operation, input, run),
+    handler: (input: Record<string, unknown>) =>
+      invoke(
+        operation,
+        {
+          ...(options.projectRoot === undefined
+            ? {}
+            : { projectRoot: options.projectRoot }),
+          ...(options.configPath === undefined
+            ? {}
+            : { configPath: options.configPath }),
+          ...input,
+        },
+        options.dispatcher,
+      ),
   }));
 }
 
@@ -89,7 +108,9 @@ export async function callTool(
   args: Record<string, unknown>,
   run?: Dispatcher,
 ) {
-  const definition = toolDefinitions(run).find((tool) => tool.name === name);
+  const definition = toolDefinitions({ dispatcher: run }).find(
+    (tool) => tool.name === name,
+  );
   const result = definition
     ? await definition.handler(args)
     : await invoke(`unknown-${name}`, args, run);

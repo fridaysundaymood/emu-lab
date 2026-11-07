@@ -2,7 +2,7 @@
 
 The package exports `Scheduler`, device runners, `build`, `classifyFailure`, and `dispatch`. Node 24 is required. Use one project-local SQLite database for all clients on a host.
 
-The package root also exports `toolDefinitions(run?)`, whose entries provide MCP names, descriptions, JSON input schemas, and asynchronous handlers returning the shared result envelope. The optional dispatcher supports embedding and testing. `doctor(args?)` returns the same envelope as the `emu_lab_doctor` handler. `configSection` is `emuLab`, `configSectionSchema` describes that configuration section, and `supportedSchemaMajors` lists the supported schema major versions. Importing the package does not start the MCP server; use the `emu-lab-mcp` executable for stdio.
+The package root also exports `toolDefinitions({ projectRoot?, configPath?, dispatcher? })`, whose entries provide MCP names, descriptions, JSON input schemas, and asynchronous handlers returning the shared result envelope. Input can override the default project root or configuration path; the optional dispatcher supports embedding and testing. `doctor(args?)` returns the same envelope as the `emu_lab_doctor` handler. `configSection` is `emuLab`, `configSectionSchema` describes that configuration section, and `supportedSchemaMajors` lists the supported schema major versions. Importing the package does not start the MCP server; use the `emu-lab-mcp` executable for stdio.
 
 ```ts
 import { Scheduler, runMaestro } from '@android-kit/emu-lab';

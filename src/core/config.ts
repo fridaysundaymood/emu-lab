@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { loadConfig } from '@android-kit/schema';
 import type { DeviceProfile } from './scheduler.js';
 
@@ -67,8 +67,13 @@ export interface LabConfig {
   profiles?: Record<string, DeviceProfile>;
 }
 
-export async function readConfig(root: string): Promise<LabConfig> {
-  const path = join(root, 'android-kit.yaml');
+export async function readConfig(
+  root: string,
+  configPath?: string,
+): Promise<LabConfig> {
+  const path = configPath
+    ? resolve(root, configPath)
+    : join(root, 'android-kit.yaml');
   try {
     await access(path);
   } catch (error) {
