@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,9 @@ if (process.env.AK_INTEGRATION !== '1') {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = resolve(root, '../kit-fixture-app');
-const { Scheduler } = await import('../dist/core/scheduler.js');
+const { Scheduler, defaultProfiles } = await import(
+  '../dist/core/scheduler.js'
+);
 const { install, logcat, runInstrumentation, runMaestro } = await import(
   '../dist/core/runners.js'
 );
@@ -53,14 +56,51 @@ const apk = (flavor) => builds[flavor].apk;
 const testApk = (flavor) => builds[flavor].testApk;
 const artifacts = runArtifactDir(fixture, runId, 'emu-lab');
 const scratch = await mkdtemp(join(tmpdir(), 'emu-lab-integration-'));
+const health = [],
+  emulatorOutput = [];
+const sdkRoot = process.env.ANDROID_SDK_ROOT ?? process.env.ANDROID_HOME;
+const adb = sdkRoot
+  ? join(
+      sdkRoot,
+      'platform-tools',
+      process.platform === 'win32' ? 'adb.exe' : 'adb',
+    )
+  : 'adb';
+const adbCommand = (lease, args) =>
+  scheduler.withLease(lease.leaseId, lease.serial, (serial, signal) => {
+    const { promise, resolve: finish, reject } = Promise.withResolvers();
+    const child = spawn(adb, ['-s', serial, ...args], {
+      windowsHide: true,
+      signal,
+    });
+    const stdout = [],
+      stderr = [];
+    child.stdout.on('data', (chunk) => stdout.push(chunk));
+    child.stderr.on('data', (chunk) => stderr.push(chunk));
+    child.on('error', reject);
+    child.on('close', (code) =>
+      finish({
+        code,
+        stdout: Buffer.concat(stdout).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString('utf8'),
+      }),
+    );
+    return promise;
+  });
 const scheduler = new Scheduler({
   databasePath: join(scratch, 'lab.sqlite'),
   budget: 1,
+  headless: true,
+  bootTimeoutMs: 480_000,
+  profiles: { diagnostic: { ...defaultProfiles.default, gpu: 'host' } },
+  onHealth: (event) => health.push(event),
+  onDiagnostics: (event) => emulatorOutput.push(event),
 });
 let lease;
 let heartbeat;
 try {
   lease = await scheduler.lease({
+    profile: 'diagnostic',
     ttlMs: 60 * 60_000,
     heartbeatMs: 5 * 60_000,
   });
@@ -68,6 +108,49 @@ try {
     void scheduler.heartbeat(lease.leaseId).catch(console.error);
   }, 60_000);
   const device = { leaseId: lease.leaseId, serial: lease.serial };
+  const diagnosticDir = join(artifacts, 'diagnostics');
+  await mkdir(diagnosticDir, { recursive: true });
+  for (const [name, args] of [
+    ['logcat', ['logcat', '-d', '-v', 'threadtime']],
+    ['uptime', ['shell', 'uptime']],
+    ['top', ['shell', 'top', '-b', '-n', '1']],
+  ]) {
+    const result = await adbCommand(lease, args);
+    await writeFile(
+      join(diagnosticDir, `${name}.txt`),
+      result.stdout + result.stderr,
+    );
+    assert.equal(result.code, 0, `${name} failed: ${result.stderr}`);
+    if (name === 'logcat')
+      await writeFile(
+        join(diagnosticDir, 'renderer.txt'),
+        result.stdout
+          .split(/\r?\n/)
+          .filter((line) =>
+            /renderer|gles|swiftshader|opengl|vulkan/i.test(line),
+          )
+          .join('\n'),
+      );
+  }
+  const snapshotName = `integration-${runId}`;
+  const snapshotResults = {};
+  for (const action of ['save', 'list', 'load']) {
+    snapshotResults[action] = await scheduler.snapshot(
+      lease.leaseId,
+      lease.serial,
+      action,
+      action === 'list' ? undefined : snapshotName,
+    );
+    await writeFile(
+      join(diagnosticDir, 'snapshot.json'),
+      JSON.stringify(snapshotResults, null, 2),
+    );
+    if (action === 'list')
+      assert.ok(
+        snapshotResults.list.includes(snapshotName),
+        'Saved snapshot missing from snapshot list',
+      );
+  }
   const base = {
     ...device,
     packageName,
@@ -126,7 +209,7 @@ try {
   const crashFlow = join(crashDir, 'crash.yaml');
   await writeFile(
     crashFlow,
-    `appId: ${packageName}\n---\n- launchApp\n- tapOn:\n    point: "93%,9%"\n- tapOn: "Crash test"\n- assertVisible: "Crash test"\n`,
+    `appId: ${packageName}\n---\n- launchApp\n- assertVisible: "General"\n- tapOn:\n    point: "93%,8%"\n- assertVisible: "Language"\n- tapOn: "Crash test"\n- assertVisible: "Crash test"\n`,
   );
   const crash = await runMaestro(scheduler, {
     ...base,
@@ -175,6 +258,15 @@ try {
       return files;
     };
     await mkdir(artifacts, { recursive: true });
+    await mkdir(join(artifacts, 'diagnostics'), { recursive: true });
+    await writeFile(
+      join(artifacts, 'diagnostics', 'boot-health.json'),
+      JSON.stringify(health, null, 2),
+    );
+    await writeFile(
+      join(artifacts, 'diagnostics', 'emulator-output.json'),
+      JSON.stringify(emulatorOutput, null, 2),
+    );
     await writeArtifactIndex(
       fixture,
       runId,

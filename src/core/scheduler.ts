@@ -28,7 +28,7 @@ export const defaultProfiles: Record<string, DeviceProfile> = {
     api: 36,
     ramMb: 2048,
     cores: 4,
-    gpu: 'auto',
+    gpu: 'host',
     root: false,
     locale: 'en-US',
     density: 420,
@@ -141,7 +141,9 @@ export class Scheduler {
   private readonly headless: boolean;
   private readonly allowInstall: boolean;
   private readonly onHealth: (event: HealthEvent) => void;
-  private readonly onDiagnostics: ((event: DiagnosticEvent) => void) | undefined;
+  private readonly onDiagnostics:
+    | ((event: DiagnosticEvent) => void)
+    | undefined;
   private readonly maxCpuLoad: number;
   private lastCpuLoad: number | null = null;
   private readonly ready: Promise<void>;
@@ -235,10 +237,12 @@ export class Scheduler {
     file: string,
     args: string[],
     timeout = 30_000,
+    signal?: AbortSignal,
   ): Promise<string> {
     const result = await exec(file, args, {
       timeout,
       windowsHide: true,
+      ...(signal ? { signal } : {}),
       maxBuffer: 4 * 1024 * 1024,
     });
     return result.stdout;
@@ -712,11 +716,30 @@ export class Scheduler {
       const emitDiagnostics = async () => {
         if (!this.onDiagnostics) return;
         let token = '';
-        try { token = (await readFile(join(homedir(), '.emulator_console_auth_token'), 'utf8')).trim(); } catch {}
+        try {
+          token = (
+            await readFile(
+              join(homedir(), '.emulator_console_auth_token'),
+              'utf8',
+            )
+          ).trim();
+        } catch {}
         const output = token
-          ? diagnostics.split(token).join('[redacted]').replace(/(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi, '$1[redacted]')
+          ? diagnostics
+              .split(token)
+              .join('[redacted]')
+              .replace(
+                /(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi,
+                '$1[redacted]',
+              )
           : '[emulator output withheld: console token unavailable for redaction]';
-        this.onDiagnostics({ leaseId: row.lease_id, serial: row.serial, attempt: attempt + 1, timestamp: new Date().toISOString(), output });
+        this.onDiagnostics({
+          leaseId: row.lease_id,
+          serial: row.serial,
+          attempt: attempt + 1,
+          timestamp: new Date().toISOString(),
+          output,
+        });
       };
       let exitDetails = '';
       child.on('exit', (code, signal) => {
@@ -750,7 +773,9 @@ export class Scheduler {
         }
         if (!adopted) {
           await emitDiagnostics();
-          throw new Error('emulator child identity could not be established; device quarantined');
+          throw new Error(
+            'emulator child identity could not be established; device quarantined',
+          );
         }
       }
       report('verifying_ownership');
@@ -832,14 +857,71 @@ export class Scheduler {
           }
           healthEvidence = 'setting locale';
           report('setting_locale');
-          const currentLocale = (await this.command(adb, ['-s', row.serial, 'shell', 'getprop', 'persist.sys.locale'], 5000)).trim();
-          if (currentLocale.toLowerCase() !== profile.locale.toLowerCase()) {
+          const normalizeLocale = (value: string) =>
+            value.trim().replaceAll('_', '-').toLowerCase();
+          const readLocale = async () => {
+            const persisted = (
+              await this.command(
+                adb,
+                ['-s', row.serial, 'shell', 'getprop', 'persist.sys.locale'],
+                5000,
+              )
+            ).trim();
+            let effective = '';
             try {
-              await this.command(adb, ['-s', row.serial, 'shell', 'setprop', 'persist.sys.locale', profile.locale], 5000);
-              const updated = (await this.command(adb, ['-s', row.serial, 'shell', 'getprop', 'persist.sys.locale'], 5000)).trim();
-              if (updated.toLowerCase() !== profile.locale.toLowerCase()) throw new Error('locale was not changed');
+              const dump = await this.command(
+                adb,
+                [
+                  '-s',
+                  row.serial,
+                  'shell',
+                  'dumpsys',
+                  'activity',
+                  'activities',
+                ],
+                10_000,
+              );
+              effective =
+                /m(?:GlobalConfiguration|CurrentConfig)\s*=\s*\{[^\r\n]*?\[([A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)*)/i.exec(
+                  dump,
+                )?.[1] ?? '';
             } catch {
-              throw new LocaleUnavailableError(`requested locale ${profile.locale} cannot be set on this image`);
+              /* Fall back to system properties. */
+            }
+            if (effective) return effective;
+            if (persisted) return persisted;
+            return (
+              await this.command(
+                adb,
+                ['-s', row.serial, 'shell', 'getprop', 'ro.product.locale'],
+                5000,
+              )
+            ).trim();
+          };
+          const currentLocale = await readLocale();
+          if (
+            normalizeLocale(currentLocale) !== normalizeLocale(profile.locale)
+          ) {
+            try {
+              await this.command(
+                adb,
+                [
+                  '-s',
+                  row.serial,
+                  'shell',
+                  'setprop',
+                  'persist.sys.locale',
+                  profile.locale,
+                ],
+                5000,
+              );
+              const updated = await readLocale();
+              if (normalizeLocale(updated) !== normalizeLocale(profile.locale))
+                throw new Error('locale was not changed');
+            } catch {
+              throw new LocaleUnavailableError(
+                `requested locale ${profile.locale} cannot be set on this image`,
+              );
             }
           }
           healthEvidence = 'setting display density';
@@ -860,7 +942,10 @@ export class Scheduler {
           await emitDiagnostics();
           return;
         } catch (error) {
-          if (error instanceof LocaleUnavailableError) { await emitDiagnostics(); throw error; }
+          if (error instanceof LocaleUnavailableError) {
+            await emitDiagnostics();
+            throw error;
+          }
           report(`failed_${previousStage}`);
           healthEvidence =
             `${healthEvidence}: ${error instanceof Error ? error.message : String(error)}`.slice(
@@ -1195,12 +1280,67 @@ export class Scheduler {
           socket.end();
         }
       });
+      let result: string;
       try {
-        return await promise;
+        result = await promise;
       } finally {
         signal.removeEventListener('abort', abort);
         socket.destroy();
       }
+      if (action === 'load') {
+        const adb = this.tool('platform-tools', 'adb');
+        const deadline = Date.now() + this.bootTimeout;
+        let ready = false;
+        while (Date.now() < deadline && !signal.aborted) {
+          try {
+            if (!(await this.verified(row))) {
+              await delay(1000, undefined, { signal });
+              continue;
+            }
+            await this.command(
+              adb,
+              ['-s', authorized, 'wait-for-device'],
+              Math.max(1, Math.min(5000, deadline - Date.now())),
+              signal,
+            );
+            if (!(await this.verified(row))) {
+              await delay(1000, undefined, { signal });
+              continue;
+            }
+            const boot = await this.command(
+              adb,
+              ['-s', authorized, 'shell', 'getprop', 'sys.boot_completed'],
+              Math.max(1, Math.min(5000, deadline - Date.now())),
+              signal,
+            );
+            if (boot.trim() !== '1' || !(await this.verified(row))) {
+              await delay(1000, undefined, { signal });
+              continue;
+            }
+            await this.command(
+              adb,
+              ['-s', authorized, 'shell', 'pm', 'path', 'android'],
+              Math.max(1, Math.min(5000, deadline - Date.now())),
+              signal,
+            );
+            ready = true;
+            break;
+          } catch {
+            if (signal.aborted)
+              throw new Error(
+                'lease released while waiting for snapshot restore',
+              );
+          }
+          await delay(1000, undefined, { signal });
+        }
+        if (signal.aborted)
+          throw new Error('lease released while waiting for snapshot restore');
+        if (!ready)
+          throw new Error(
+            'snapshot loaded but device did not become booted and package-manager ready before timeout',
+          );
+      }
+      return result;
     });
   }
 

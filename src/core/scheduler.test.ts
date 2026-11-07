@@ -1,11 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import * as fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import * as os from 'node:os';
-import { createServer } from 'node:net';
 import { once } from 'node:events';
-import { DatabaseSync } from 'node:sqlite';
+import * as fs from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import * as os from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HostLoadError, Scheduler } from './scheduler.js';
 
@@ -126,9 +126,13 @@ describe('CPU gate and authenticated console', () => {
   it('rejects an overloaded host with measured environment evidence', async () => {
     const { scheduler } = await create();
     const cpu = (user: number, idle: number): os.CpuInfo => ({
-      model: 'fake', speed: 1, times: { user, nice: 0, sys: 0, idle, irq: 0 },
+      model: 'fake',
+      speed: 1,
+      times: { user, nice: 0, sys: 0, idle, irq: 0 },
     });
-    vi.mocked(os.cpus).mockReturnValueOnce([cpu(100, 100)]).mockReturnValueOnce([cpu(195, 105)]);
+    vi.mocked(os.cpus)
+      .mockReturnValueOnce([cpu(100, 100)])
+      .mockReturnValueOnce([cpu(195, 105)]);
     const gate = scheduler as unknown as { checkCpuLoad(): Promise<void> };
     const error = await gate.checkCpuLoad().catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(HostLoadError);
@@ -149,28 +153,48 @@ describe('CPU gate and authenticated console', () => {
           const command = pending.slice(0, end).trim();
           pending = pending.slice(end + 1);
           commands.push(command);
-          socket.write(command.startsWith('auth ') ? 'OK\r\n' : 'snapshot fake-secret\r\nOK\r\n');
+          socket.write(
+            command.startsWith('auth ')
+              ? 'OK\r\n'
+              : 'snapshot fake-secret\r\nOK\r\n',
+          );
         }
       });
     });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('missing server address');
+    if (!address || typeof address === 'string')
+      throw new Error('missing server address');
     const serial = `emulator-${address.port}`;
     const db = new DatabaseSync(databasePath);
-    db.prepare('UPDATE lab_devices SET port=?, serial=? WHERE lease_id=?').run(address.port, serial, lease.leaseId);
+    db.prepare('UPDATE lab_devices SET port=?, serial=? WHERE lease_id=?').run(
+      address.port,
+      serial,
+      lease.leaseId,
+    );
     db.close();
-    const originalReadFile = await vi.importActual<typeof fs>('node:fs/promises');
-    vi.mocked(fs.readFile).mockImplementation(((path: Parameters<typeof fs.readFile>[0], ...args: unknown[]) => {
-      if (String(path).endsWith('.emulator_console_auth_token')) return Promise.resolve('fake-secret');
-      return (originalReadFile.readFile as (...params: unknown[]) => Promise<unknown>)(path, ...args);
+    const originalReadFile =
+      await vi.importActual<typeof fs>('node:fs/promises');
+    vi.mocked(fs.readFile).mockImplementation(((
+      path: Parameters<typeof fs.readFile>[0],
+      ...args: unknown[]
+    ) => {
+      if (String(path).endsWith('.emulator_console_auth_token'))
+        return Promise.resolve('fake-secret');
+      return (
+        originalReadFile.readFile as (...params: unknown[]) => Promise<unknown>
+      )(path, ...args);
     }) as typeof fs.readFile);
     try {
-      expect(await scheduler.snapshot(lease.leaseId, serial, 'list')).toBe('snapshot [redacted]');
+      expect(await scheduler.snapshot(lease.leaseId, serial, 'list')).toBe(
+        'snapshot [redacted]',
+      );
       expect(commands).toEqual(['auth fake-secret', 'avd snapshot list']);
       vi.mocked(host.verified).mockResolvedValue(false);
-      await expect(scheduler.snapshot(lease.leaseId, serial, 'delete', 'clean')).rejects.toThrow(/ownership|authorize/);
+      await expect(
+        scheduler.snapshot(lease.leaseId, serial, 'delete', 'clean'),
+      ).rejects.toThrow(/ownership|authorize/);
       expect(commands).toEqual(['auth fake-secret', 'avd snapshot list']);
     } finally {
       server.close();
