@@ -616,9 +616,22 @@ export async function smokeRelease(
     );
   else await shell(auth, args, 'monkey', '-p', args.packageName, '1');
   const windows = await shell(auth, args, 'dumpsys', 'window');
-  const uid = /\buserId=(\d+)/.exec(
-    await shell(auth, args, 'dumpsys', 'package', args.packageName),
-  )?.[1];
+  const packages = await shell(
+    auth,
+    args,
+    'cmd',
+    'package',
+    'list',
+    'packages',
+    '-U',
+    args.packageName,
+  );
+  const uid = packages
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/))
+    .find((fields) => fields[0] === `package:${args.packageName}`)
+    ?.find((field) => /^uid=\d+$|^uid:\d+$/.test(field))
+    ?.slice(4);
   if (!uid) throw new Error('App UID unavailable');
   const logs = checked(
     await adb(auth, args, 'logcat', '-d', '-T', since, '--uid', uid),

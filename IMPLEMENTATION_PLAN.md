@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation in progress. Core, adapters, build cache and classifier are present; milestone exit criteria, including real-device runner integration and recovery coverage, remain unverified.
+Milestone exit scenarios have been exercised with synthetic unit tests and a Windows emulator: shared-budget and expiry safety, debug/test/release cache reuse, zero-test and flaky runners, classifier golden cases, crash recovery, snapshots, and synthetic-signed release smoke. Linux and macOS emulator integration remains unverified locally; cross-platform unit checks are configured in CI. Synthetic release signing does not verify production signing.
 
 ## Problem and goal
 
