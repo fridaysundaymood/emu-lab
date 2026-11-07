@@ -109,6 +109,12 @@ describe('failure classifier golden cases', () => {
     });
   });
   it('does not guess from partial or ambiguous evidence', () => {
+    expect(classifyFailure({ log: '', artifacts })).toEqual({
+      status: 'fail',
+      ruleVersion: '1.0.0',
+      evidence: [],
+      artifacts,
+    });
     expect(
       classifyFailure({ log: 'FATAL EXCEPTION: main', artifacts }),
     ).not.toHaveProperty('classification');
