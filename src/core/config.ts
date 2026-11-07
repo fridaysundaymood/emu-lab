@@ -6,6 +6,14 @@ import type { DeviceProfile } from './scheduler.js';
 export const configSchema = {
   properties: {
     budget: { type: 'integer', minimum: 1 },
+    build: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        variant: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9]*$' },
+        testVariant: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9]*$' },
+      },
+    },
     denySerials: {
       type: 'array',
       items: { type: 'string' },
@@ -54,6 +62,7 @@ export const configSchema = {
 } as const;
 
 export interface LabConfig {
+  build?: { variant?: string; testVariant?: string };
   budget?: number;
   denySerials?: string[];
   sdkRoot?: string;

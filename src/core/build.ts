@@ -23,6 +23,7 @@ export interface BuildOptions {
   projectRoot: string;
   runId: string;
   variant: string;
+  testVariant?: string;
   commit?: string;
   module?: string;
   release?: boolean;
@@ -131,6 +132,8 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   const root = resolve(options.projectRoot);
   if (
     !/^[A-Za-z][A-Za-z0-9]*$/.test(options.variant) ||
+    (options.testVariant !== undefined &&
+      !/^[A-Za-z][A-Za-z0-9]*$/.test(options.testVariant)) ||
     (options.module && !/^[A-Za-z0-9_.-]+$/.test(options.module))
   )
     throw new Error('Invalid Gradle variant or module');
@@ -146,7 +149,15 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       ).stdout.trim()
     : await treeHash(root);
   const key = createHash('sha256')
-    .update(JSON.stringify([tree, module, options.variant, release]))
+    .update(
+      JSON.stringify([
+        tree,
+        module,
+        options.variant,
+        options.testVariant ?? options.variant,
+        release,
+      ]),
+    )
     .digest('hex');
   const cacheRoot = join(root, '.android-kit', 'emu-lab', 'builds');
   const cache = join(cacheRoot, key);
@@ -204,11 +215,14 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
       );
       const variant =
         options.variant[0]!.toUpperCase() + options.variant.slice(1);
+      const testVariant = options.testVariant ?? options.variant;
+      const testTaskVariant =
+        testVariant[0]!.toUpperCase() + testVariant.slice(1);
       const args = [
         `:${module}:assemble${variant}`,
         ...(release
           ? [`:${module}:bundle${variant}`]
-          : [`:${module}:assemble${variant}AndroidTest`]),
+          : [`:${module}:assemble${testTaskVariant}AndroidTest`]),
         '--project-cache-dir',
         join(temp, 'project-cache'),
         '--init-script',

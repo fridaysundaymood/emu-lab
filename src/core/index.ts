@@ -92,6 +92,7 @@ export async function dispatch(
         break;
       case 'build':
         result = await build({
+          ...config.build,
           ...args,
           projectRoot: root,
           runId,
