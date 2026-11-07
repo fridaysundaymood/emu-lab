@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection, createServer } from 'node:net';
 import { cpus, freemem, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -80,6 +80,7 @@ export class HostLoadError extends Error {
 
 export interface SchedulerOptions {
   databasePath: string;
+  artifactDir?: string;
   budget?: number;
   denySerials?: string[];
   sdkRoot?: string;
@@ -136,6 +137,7 @@ export class Scheduler {
   private readonly denied: Set<string>;
   private readonly sdk: string;
   private readonly home: string;
+  private readonly artifactDir: string;
   private readonly profiles: Record<string, DeviceProfile>;
   private readonly bootTimeout: number;
   private readonly headless: boolean;
@@ -186,6 +188,9 @@ export class Scheduler {
         );
       });
     this.home = resolve(dirname(options.databasePath), 'avd');
+    this.artifactDir =
+      options.artifactDir ??
+      join(dirname(resolve(options.databasePath)), 'runs', 'emulator');
     if (options.databasePath !== ':memory:')
       mkdirSync(dirname(resolve(options.databasePath)), { recursive: true });
     this.db = new DatabaseSync(options.databasePath, { timeout: 5000 });
@@ -684,6 +689,9 @@ export class Scheduler {
           elapsedMs: Date.now() - started,
         });
       };
+      await mkdir(this.artifactDir, { recursive: true });
+      const logPath = join(this.artifactDir, `${row.id}-${attempt + 1}.log`);
+      const log = await open(logPath, 'a');
       report(attempt ? 'cold_retry_start' : 'boot_start');
       const child = spawn(
         this.tool('emulator', 'emulator'),
@@ -700,21 +708,21 @@ export class Scheduler {
         ],
         {
           env: { ...process.env, ANDROID_AVD_HOME: this.home },
-          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: true,
+          stdio: ['ignore', log.fd, log.fd],
           windowsHide: this.headless,
         },
       );
+      await log.close();
+      child.unref();
       let exited = false;
       let adopted = false;
       let diagnostics = '';
-      for (const stream of [child.stdout, child.stderr]) {
-        stream?.setEncoding('utf8');
-        stream?.on('data', (chunk: string) => {
-          diagnostics = (diagnostics + chunk).slice(-16_384);
-        });
-      }
       const emitDiagnostics = async () => {
         if (!this.onDiagnostics) return;
+        diagnostics = (await readFile(logPath, 'utf8').catch(() => '')).slice(
+          -16_384,
+        );
         let token = '';
         try {
           token = (

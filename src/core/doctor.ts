@@ -1,12 +1,19 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { LabConfig } from './config.js';
 import { defaultProfiles } from './scheduler.js';
 
 const exec = promisify(execFile);
-type Check = { tool: string; available: boolean; version: string; fix: string };
+type Check = {
+  tool: string;
+  available: boolean;
+  version: string;
+  fix: string;
+  path?: string;
+};
 
 async function command(file: string, args: string[]): Promise<string> {
   if (process.platform === 'win32' && /\.(?:bat|cmd)$/i.test(file)) {
@@ -23,6 +30,20 @@ async function command(file: string, args: string[]): Promise<string> {
   }
   const result = await exec(file, args, { timeout: 15000, windowsHide: true });
   return `${result.stdout}\n${result.stderr}`.trim();
+}
+export async function maestroExecutable(config: LabConfig): Promise<string> {
+  if (config.maestroPath) return config.maestroPath;
+  if (process.env.MAESTRO_BIN) return process.env.MAESTRO_BIN;
+  const name = process.platform === 'win32' ? 'maestro.bat' : 'maestro';
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {}
+  }
+  return join(homedir(), '.maestro', 'maestro', 'bin', name);
 }
 
 async function checkCommand(
@@ -128,6 +149,7 @@ export async function doctor(
       : process.platform === 'win32'
         ? 'Enable hardware virtualization and install or enable Windows Hypervisor Platform or Android Emulator hypervisor driver.'
         : 'Enable hardware virtualization and run on a macOS host supporting Hypervisor.framework.';
+  const maestro = await maestroExecutable(config);
   const checks = await Promise.all([
     checkCommand(
       'adb',
@@ -157,12 +179,11 @@ export async function doctor(
     ),
     checkCommand(
       'maestro',
-      config.maestroPath ??
-        (process.platform === 'win32' ? 'maestro.bat' : 'maestro'),
+      maestro,
       ['--version'],
       'Install Maestro 2.12.x and make it available on PATH.',
       (output) => /\b2\.12\.\d+\b/.test(output),
-    ),
+    ).then((check) => ({ ...check, path: maestro })),
     checkPackage(sdk, 'platform-tools', ['platform-tools']),
     checkPackage(sdk, 'emulator-package', ['emulator']),
     checkPackage(sdk, 'cmdline-tools;latest', ['cmdline-tools', 'latest']),

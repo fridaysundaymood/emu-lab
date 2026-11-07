@@ -13,7 +13,7 @@ import { pullArtifact } from './artifacts.js';
 import { build } from './build.js';
 import { classifyFailure } from './classifier.js';
 import { readConfig } from './config.js';
-import { doctor as inspectHost } from './doctor.js';
+import { doctor as inspectHost, maestroExecutable } from './doctor.js';
 import * as runners from './runners.js';
 import { HostLoadError, Scheduler } from './scheduler.js';
 
@@ -54,6 +54,7 @@ export async function dispatch(
     await mkdir(artifactDir, { recursive: true });
     const schedulerOptions = {
       ...config,
+      artifactDir,
       databasePath:
         config.databasePath ?? join(root, '.android-kit', 'emu-lab.sqlite'),
     };
@@ -62,7 +63,7 @@ export async function dispatch(
     const input = {
       ...args,
       adb: config.adbPath,
-      maestro: config.maestroPath,
+      maestro: await maestroExecutable(config),
       artifactDir,
     };
     switch (operation) {
