@@ -85,11 +85,18 @@ async function command(
   program: string,
   args: string[],
   signal?: AbortSignal,
-): Promise<{ code: number; stdout: Buffer; stderr: string }> {
+  options: { timeoutMs?: number; progress?: boolean } = {},
+): Promise<{
+  code: number;
+  stdout: Buffer;
+  stderr: string;
+  timedOut?: boolean;
+}> {
   const { promise, resolve, reject } = Promise.withResolvers<{
     code: number;
     stdout: Buffer;
     stderr: string;
+    timedOut?: boolean;
   }>();
   const executable = await findWindowsCommand(program);
   const batch =
@@ -114,16 +121,42 @@ async function command(
   );
   const out: Buffer[] = [],
     err: Buffer[] = [];
-  child.stdout.on('data', (data: Buffer) => out.push(data));
-  child.stderr.on('data', (data: Buffer) => err.push(data));
-  child.on('error', reject);
-  child.on('close', (code) =>
+  let timedOut = false;
+  const timer =
+    options.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          if (batch && child.pid) {
+            const killer = spawn(
+              'taskkill',
+              ['/pid', String(child.pid), '/t', '/f'],
+              { windowsHide: true, stdio: 'ignore' },
+            );
+            killer.unref();
+          } else child.kill();
+        }, options.timeoutMs);
+  child.stdout.on('data', (data: Buffer) => {
+    out.push(data);
+    if (options.progress) process.stderr.write(data);
+  });
+  child.stderr.on('data', (data: Buffer) => {
+    err.push(data);
+    if (options.progress) process.stderr.write(data);
+  });
+  child.on('error', (error) => {
+    clearTimeout(timer);
+    reject(error);
+  });
+  child.on('close', (code) => {
+    clearTimeout(timer);
     resolve({
       code: code ?? -1,
       stdout: Buffer.concat(out),
       stderr: Buffer.concat(err).toString('utf8'),
-    }),
-  );
+      timedOut,
+    });
+  });
   return promise;
 }
 async function adb(
@@ -424,6 +457,7 @@ export async function runInstrumentation(
     apk?: string;
     testApk?: string;
     filter?: string;
+    timeoutMs?: number;
   },
 ) {
   if (args.apk) await install(auth, { ...args, apk: args.apk });
@@ -437,14 +471,30 @@ export async function runInstrumentation(
   const cmd = ['shell', 'am', 'instrument', '-w', '-r'];
   if (args.filter) cmd.push('-e', 'class', args.filter);
   cmd.push(args.runner);
-  const result = await adb(auth, args, ...cmd),
-    output = text(result);
+  const timeoutMs = args.timeoutMs ?? 1_200_000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+    throw new Error('Instrumentation timeout must be a positive integer');
+  const result = await auth.withLease(
+    args.leaseId,
+    args.serial,
+    (serial, signal) =>
+      command(args.adb ?? 'adb', ['-s', serial, ...cmd], signal, {
+        timeoutMs,
+        progress: true,
+      }),
+  );
+  const output = text(result);
   const count = Number(
     /(?:OK \((\d+) tests?\)|Tests run:\s*(\d+)|INSTRUMENTATION_STATUS: numtests=(\d+))/i
       .exec(output)
       ?.slice(1)
       .find(Boolean) ?? 0,
   );
+  const codes = [
+    ...output.matchAll(/^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)/gm),
+  ].map((match) => Number(match[1]));
+  const completed = codes.filter((code) => code <= 0).length;
+  const failures = codes.filter((code) => code < 0).length;
   const failed =
     result.code !== 0 ||
     count === 0 ||
@@ -457,6 +507,31 @@ export async function runInstrumentation(
     `<?xml version="1.0" encoding="UTF-8"?><testsuite name="instrumentation" tests="${count}" failures="${failed ? 1 : 0}"><system-out>${xml(output)}</system-out>${failed ? `<testcase name="instrumentation"><failure message="${count === 0 ? 'No tests completed' : 'Instrumentation failed'}">${xml(output)}</failure></testcase>` : ''}</testsuite>`,
   );
   const artifacts = [report];
+  if (result.timedOut) {
+    const log = await auth.withLease(
+      args.leaseId,
+      args.serial,
+      (serial, signal) =>
+        command(
+          args.adb ?? 'adb',
+          ['-s', serial, 'logcat', '-d', '-t', '1000'],
+          signal,
+          { timeoutMs: 15_000 },
+        ),
+    );
+    const path = join(args.artifactDir, 'instrumentation-logcat.txt');
+    await writeFile(path, text(log) + log.stderr);
+    return {
+      status: 'error' as const,
+      classification: 'environment' as const,
+      count,
+      completed,
+      failures,
+      output,
+      artifacts: [report, path],
+      reason: `Instrumentation timed out after ${timeoutMs}ms`,
+    };
+  }
   if (/crash|shortMsg=|INSTRUMENTATION_FAILED/i.test(output))
     artifacts.push(
       (
@@ -469,6 +544,8 @@ export async function runInstrumentation(
   return {
     status: failed ? ('fail' as const) : ('pass' as const),
     count,
+    completed,
+    failures,
     output,
     artifacts,
   };

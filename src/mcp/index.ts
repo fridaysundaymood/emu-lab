@@ -28,6 +28,7 @@ const fields: Record<string, Record<string, string>> = {
     runner: 'string',
     apk: 'string',
     testApk: 'string',
+    timeoutMs: 'number',
     filter: 'string',
   },
   'run-maestro': { packageName: 'string', state: 'object', flows: 'array' },

@@ -98,6 +98,39 @@ it('fails instrumentation reporting zero tests and writes its XML report', async
   }
 }, 120_000);
 
+it('times out a stalled synthetic instrumentation run and retains output and logcat', async () => {
+  const f = await fixture();
+  try {
+    const adb = await executable(
+      f.dir,
+      'stalled-adb',
+      `
+const args = process.argv.slice(2);
+if (args.includes('instrument')) {
+  console.log('INSTRUMENTATION_STATUS: numtests=1');
+  setInterval(() => {}, 1000);
+} else if (args.includes('logcat')) console.log('synthetic diagnostic');
+`,
+    );
+    const result = await runInstrumentation(authorizer(), {
+      ...f,
+      adb,
+      runner: 'com.example.app.test/Runner',
+      timeoutMs: 1000,
+    });
+    expect(result.status).toBe('error');
+    expect(result).toMatchObject({ classification: 'environment', count: 1 });
+    expect(
+      await readFile(join(f.artifactDir, 'instrumentation.xml'), 'utf8'),
+    ).toContain('numtests=1');
+    expect(
+      await readFile(join(f.artifactDir, 'instrumentation-logcat.txt'), 'utf8'),
+    ).toContain('synthetic diagnostic');
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+}, 30000);
+
 it('captures a failed Maestro run and reports flaky after a reset and passing rerun', async () => {
   const f = await fixture();
   try {
