@@ -13,16 +13,23 @@ import { pullArtifact } from './artifacts.js';
 import { build } from './build.js';
 import { classifyFailure } from './classifier.js';
 import { readConfig } from './config.js';
-import { doctor } from './doctor.js';
+import { doctor as inspectHost } from './doctor.js';
 import * as runners from './runners.js';
 import { HostLoadError, Scheduler } from './scheduler.js';
 
+export { toolDefinitions } from '../mcp/index.js';
 export { pullArtifact } from './artifacts.js';
 export { build } from './build.js';
 export { classifyFailure } from './classifier.js';
 export { configSchema } from './config.js';
 export * from './runners.js';
 export { HostLoadError, Scheduler } from './scheduler.js';
+export const configSection = 'emuLab';
+export { configSchema as configSectionSchema } from './config.js';
+export const supportedSchemaMajors = [1];
+export function doctor(args: Record<string, unknown> = {}): Promise<Result> {
+  return dispatch('doctor', args);
+}
 
 export async function dispatch(
   operation: string,
@@ -57,7 +64,7 @@ export async function dispatch(
     };
     switch (operation) {
       case 'doctor':
-        result = await doctor(config);
+        result = await inspectHost(config);
         break;
       case 'lab-status':
         result = await getScheduler().status();

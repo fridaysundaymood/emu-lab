@@ -6,7 +6,7 @@
   "types": "./dist/core/index.d.ts",
   "bin": {
     "emu-lab": "./dist/cli/index.js",
-    "emu-lab-mcp": "./dist/mcp/index.js"
+    "emu-lab-mcp": "./dist/mcp/bin.js"
   },
   "engines": {
     "node": ">=24"

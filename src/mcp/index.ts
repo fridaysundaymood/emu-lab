@@ -1,7 +1,4 @@
-#!/usr/bin/env node
-import { pathToFileURL } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -54,41 +51,48 @@ const fields: Record<string, Record<string, string>> = {
   },
 };
 
-export const tools = operations.map((operation) => ({
-  name: `emu_lab_${operation.replaceAll('-', '_')}`,
-  description: `Run emu-lab ${operation}. Arguments match the corresponding CLI options in camelCase.`,
-  inputSchema: {
-    type: 'object' as const,
-    properties: Object.fromEntries(
-      Object.entries({
-        projectRoot: 'string',
-        leaseId: 'string',
-        serial: 'string',
-        ...fields[operation],
-      }).map(([name, type]) => [
-        name,
-        type === 'array'
-          ? { type, items: { type: 'string' } }
-          : type === 'object'
-            ? { type, additionalProperties: true }
-            : type === 'string-or-number'
-              ? { anyOf: [{ type: 'string' }, { type: 'number' }] }
-              : { type },
-      ]),
-    ),
-    additionalProperties: true,
-  },
-}));
+export function toolDefinitions(run?: Dispatcher) {
+  return operations.map((operation) => ({
+    name: `emu_lab_${operation.replaceAll('-', '_')}`,
+    description: `Run emu-lab ${operation}. Arguments match the corresponding CLI options in camelCase.`,
+    inputSchema: {
+      type: 'object' as const,
+      properties: Object.fromEntries(
+        Object.entries({
+          projectRoot: 'string',
+          leaseId: 'string',
+          serial: 'string',
+          ...fields[operation],
+        }).map(([name, type]) => [
+          name,
+          type === 'array'
+            ? { type, items: { type: 'string' } }
+            : type === 'object'
+              ? { type, additionalProperties: true }
+              : type === 'string-or-number'
+                ? { anyOf: [{ type: 'string' }, { type: 'number' }] }
+                : { type },
+        ]),
+      ),
+      additionalProperties: true,
+    },
+    handler: (input: Record<string, unknown>) => invoke(operation, input, run),
+  }));
+}
+
+export const tools = toolDefinitions().map(
+  ({ handler: _handler, ...tool }) => tool,
+);
 
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
   run?: Dispatcher,
 ) {
-  const operation = name.startsWith('emu_lab_')
-    ? name.slice(8).replaceAll('_', '-')
-    : `unknown-${name}`;
-  const result = await invoke(operation, args, run);
+  const definition = toolDefinitions(run).find((tool) => tool.name === name);
+  const result = definition
+    ? await definition.handler(args)
+    : await invoke(`unknown-${name}`, args, run);
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     isError: result.status !== 'pass',
@@ -105,18 +109,4 @@ export function createServer(run?: Dispatcher): Server {
     callTool(request.params.name, request.params.arguments ?? {}, run),
   );
   return server;
-}
-
-export async function main(): Promise<void> {
-  await createServer().connect(new StdioServerTransport());
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  main().catch((error: unknown) => {
-    console.error(error);
-    process.exitCode = 2;
-  });
 }
