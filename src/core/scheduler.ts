@@ -449,6 +449,43 @@ export class Scheduler {
       return rows;
     });
     for (const row of expired) await this.cleanup(row);
+    for (const row of this.rows(
+      "SELECT * FROM lab_devices WHERE state='quarantined'",
+    ))
+      await this.cleanupDeadQuarantine(row);
+  }
+
+  private async cleanupDeadQuarantine(row: Row): Promise<boolean> {
+    if (
+      !row.pid ||
+      !Number.isSafeInteger(row.pid) ||
+      row.pid <= 0 ||
+      this.denied.has(row.serial) ||
+      row.avd !== `ak-emu-lab-${row.id.replaceAll('-', '')}` ||
+      !/^[0-9a-f-]{36}$/.test(row.id) ||
+      !Number.isInteger(row.port) ||
+      row.port < 5580 ||
+      row.port > 5598 ||
+      row.port % 2 !== 0 ||
+      row.serial !== `emulator-${row.port}` ||
+      this.pidAlive(row.pid)
+    )
+      return false;
+    try {
+      const dir = join(this.home, `${row.avd}.avd`);
+      if ((await readFile(join(dir, '.emu-lab-owner'), 'utf8')) !== row.id)
+        return false;
+      if (!(await this.portFree(row.port)) || this.pidAlive(row.pid))
+        return false;
+      await rm(dir, { recursive: true, force: true });
+      await rm(join(this.home, `${row.avd}.ini`), { force: true });
+      this.db
+        .prepare("DELETE FROM lab_devices WHERE id=? AND state='quarantined'")
+        .run(row.id);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async cleanup(row: Row): Promise<void> {
@@ -1446,25 +1483,21 @@ export class Scheduler {
     } catch {
       /* Already exited. */
     }
-    for (let i = 0; i < 50 && (await this.processMatches(row)); i++)
-      await delay(100);
-    if (await this.processMatches(row)) {
+    for (let i = 0; i < 50 && this.pidAlive(row.pid); i++) await delay(100);
+    if (this.pidAlive(row.pid) && (await this.verified(row))) {
       try {
         process.kill(row.pid, 'SIGKILL');
       } catch {
-        /* Already exited. */
+        /* The process may have exited. */
       }
       await delay(500);
     }
-    if (await this.processMatches(row))
-      return { evidence: 'emulator survived SIGKILL', freed: false };
-    await rm(join(this.home, `${row.avd}.avd`), {
-      recursive: true,
-      force: true,
-    });
-    await rm(join(this.home, `${row.avd}.ini`), { force: true });
-    this.db.prepare('DELETE FROM lab_devices WHERE id=?').run(row.id);
-    return { evidence: 'emulator killed and released', freed: true };
+    if (await this.cleanupDeadQuarantine(row))
+      return { evidence: 'emulator killed and released', freed: true };
+    return {
+      evidence: 'cleanup could not be verified; device remains quarantined',
+      freed: false,
+    };
   }
   async probe(
     leaseId: string,

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,10 +9,15 @@ import { DeviceUnresponsiveError, Scheduler } from './scheduler.js';
 // Host operations are faked; slot reservation and cleanup still run on SQLite.
 const host = Scheduler.prototype as unknown as {
   command(file: string, args: string[], timeout?: number): Promise<string>;
-  provision(row: { pid: number | null; id: string }): Promise<void>;
+  provision(row: {
+    pid: number | null;
+    id: string;
+    avd: string;
+  }): Promise<void>;
   verified(row: unknown): Promise<boolean>;
   processMatches(row: unknown): Promise<boolean>;
   portFree(port: number): Promise<boolean>;
+  pidAlive(pid: number): boolean;
 };
 // Fake emulator state: `wedged` serials time out on every probe; `alive` is the emulator process.
 const FAKE_PID = 4242;
@@ -30,9 +35,13 @@ beforeEach(() => {
   vi.spyOn(host, 'portFree').mockResolvedValue(true);
   vi.spyOn(host, 'verified').mockResolvedValue(true);
   vi.spyOn(host, 'processMatches').mockImplementation(async () => alive);
+  vi.spyOn(host, 'pidAlive').mockImplementation(() => alive);
   // Mirror production: provision records the emulator pid on the row it was given.
   vi.spyOn(host, 'provision').mockImplementation(async (row) => {
     row.pid = FAKE_PID;
+    const dir = join(databasePath, '..', 'avd', `${row.avd}.avd`);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, '.emu-lab-owner'), row.id);
     alive = true;
     const db = new DatabaseSync(databasePath);
     db.prepare('UPDATE lab_devices SET pid=? WHERE id=?').run(FAKE_PID, row.id);

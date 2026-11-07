@@ -24,6 +24,7 @@ const host = Scheduler.prototype as unknown as {
   provision(row: unknown): Promise<void>;
   verified(row: unknown): Promise<boolean>;
   liveness(row: unknown): Promise<string | undefined>;
+  pidAlive(pid: number): boolean;
 };
 const schedulers: Scheduler[] = [];
 const roots: string[] = [];
@@ -105,6 +106,31 @@ describe('scheduler with fake host operations', () => {
     schedulers.push(ambiguous);
     expect((await ambiguous.status()).devices[0]?.state).toBe('quarantined');
     await expect(ambiguous.authorize(lease.leaseId)).rejects.toThrow();
+  });
+  it('cleans dead quarantines on status only with an owner marker and vacant ports', async () => {
+    const { scheduler, databasePath } = await create();
+    await scheduler.lease();
+    const db = new DatabaseSync(databasePath);
+    const row = db.prepare('SELECT id, avd FROM lab_devices').get() as {
+      id: string;
+      avd: string;
+    };
+    db.prepare("UPDATE lab_devices SET state='quarantined', pid=4242").run();
+    db.close();
+    const dir = join(databasePath, '..', 'avd', `${row.avd}.avd`);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, '.emu-lab-owner'), 'foreign');
+    vi.spyOn(host, 'pidAlive').mockReturnValue(false);
+    expect((await scheduler.status()).devices).toHaveLength(1);
+    await fs.writeFile(join(dir, '.emu-lab-owner'), row.id);
+    vi.mocked(host.portFree).mockResolvedValue(false);
+    expect((await scheduler.status()).devices).toHaveLength(1);
+    vi.mocked(host.portFree).mockResolvedValue(true);
+    vi.mocked(host.pidAlive).mockReturnValue(true);
+    expect((await scheduler.status()).devices).toHaveLength(1);
+    vi.mocked(host.pidAlive).mockReturnValue(false);
+    expect((await scheduler.status()).devices).toHaveLength(0);
+    await expect(fs.stat(dir)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('expires only after both deadlines and quarantines unverified devices', async () => {
