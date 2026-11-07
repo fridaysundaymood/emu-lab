@@ -14,10 +14,12 @@ jobs:
         with:
           repository: fridaysundaymood/android-kit
           path: android-kit
+          token: ${{ secrets.KIT_REPOS_TOKEN || github.token }}
       - uses: actions/checkout@v4
         with:
           repository: fridaysundaymood/kit-fixture-app
           path: kit-fixture-app
+          token: ${{ secrets.KIT_REPOS_TOKEN || github.token }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
