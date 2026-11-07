@@ -11,6 +11,8 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 
+const livenessTimeoutMs = 5_000;
+
 export interface DeviceProfile {
   image: string;
   api: number;
@@ -75,6 +77,19 @@ export class HostLoadError extends Error {
         : `CPU utilization ${Math.round(cpuLoad * 100)}% exceeds the ${Math.round(maxCpuLoad * 100)}% boot threshold`,
     );
     this.name = 'HostLoadError';
+  }
+}
+
+/** Thrown when a device fails liveness; `freed` means the slot was released and a fresh lease may be taken. */
+export class DeviceUnresponsiveError extends Error {
+  constructor(
+    public readonly profile: string,
+    public readonly serial: string,
+    public readonly evidence: string,
+    public readonly freed: boolean,
+  ) {
+    super(`device ${serial} failed liveness and was quarantined: ${evidence}`);
+    this.name = 'DeviceUnresponsiveError';
   }
 }
 
@@ -1045,8 +1060,21 @@ export class Scheduler {
     await this.ready;
     const { ttl, heartbeat } = this.validate(request);
     const rows = await this.reserve(request.profiles, ttl, heartbeat);
+    const quarantined = new Set<string>();
     try {
       for (const row of rows) await this.provision(row);
+      for (const row of rows) {
+        const failure = await this.liveness(row);
+        if (failure === undefined) continue;
+        quarantined.add(row.id);
+        const kill = await this.quarantine(row);
+        throw new DeviceUnresponsiveError(
+          row.profile,
+          row.serial,
+          `${failure}; ${kill.evidence}`,
+          kill.freed,
+        );
+      }
       const now = Date.now();
       this.transaction(() => {
         for (const row of rows)
@@ -1064,6 +1092,7 @@ export class Scheduler {
       };
     } catch (error) {
       for (const row of rows) {
+        if (quarantined.has(row.id)) continue;
         if (row.pid) await this.cleanup(row);
         else {
           const dir = join(this.home, `${row.avd}.avd`);
@@ -1365,6 +1394,101 @@ export class Scheduler {
           );
       }
       return result;
+    });
+  }
+
+  private async liveness(row: Row): Promise<string | undefined> {
+    const adb = this.tool('platform-tools', 'adb');
+    try {
+      const echo = (
+        await this.command(
+          adb,
+          ['-s', row.serial, 'shell', 'echo', 'ok'],
+          livenessTimeoutMs,
+        )
+      ).trim();
+      if (echo !== 'ok')
+        return `shell echo returned ${echo ? JSON.stringify(echo) : '(empty)'}`;
+      const boot = (
+        await this.command(
+          adb,
+          ['-s', row.serial, 'shell', 'getprop', 'sys.boot_completed'],
+          livenessTimeoutMs,
+        )
+      ).trim();
+      return boot === '1'
+        ? undefined
+        : `sys.boot_completed=${boot || '(empty)'}`;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return `adb liveness probe failed: ${reason.split('\n')[0]}`;
+    }
+  }
+
+  private async quarantine(
+    row: Row,
+  ): Promise<{ evidence: string; freed: boolean }> {
+    this.db
+      .prepare("UPDATE lab_devices SET state='quarantined' WHERE id=?")
+      .run(row.id);
+    if (!row.pid)
+      return {
+        evidence: 'no emulator pid recorded; nothing killed',
+        freed: false,
+      };
+    if (!(await this.verified(row)))
+      return {
+        evidence: 'emulator identity unverified; process not killed',
+        freed: false,
+      };
+    try {
+      process.kill(row.pid, 'SIGTERM');
+    } catch {
+      /* Already exited. */
+    }
+    for (let i = 0; i < 50 && (await this.processMatches(row)); i++)
+      await delay(100);
+    if (await this.processMatches(row)) {
+      try {
+        process.kill(row.pid, 'SIGKILL');
+      } catch {
+        /* Already exited. */
+      }
+      await delay(500);
+    }
+    if (await this.processMatches(row))
+      return { evidence: 'emulator survived SIGKILL', freed: false };
+    await rm(join(this.home, `${row.avd}.avd`), {
+      recursive: true,
+      force: true,
+    });
+    await rm(join(this.home, `${row.avd}.ini`), { force: true });
+    this.db.prepare('DELETE FROM lab_devices WHERE id=?').run(row.id);
+    return { evidence: 'emulator killed and released', freed: true };
+  }
+  async probe(
+    leaseId: string,
+    serial?: string,
+  ): Promise<{ serial: string; profile: string }> {
+    await this.ready;
+    return this.withLease(leaseId, serial, async (authorized) => {
+      const row = this.rows(
+        "SELECT * FROM lab_devices WHERE lease_id=? AND serial=? AND state='active'",
+        leaseId,
+        authorized,
+      )[0];
+      if (!row) throw new Error('lease does not authorize this device');
+      const failure = await this.liveness(row);
+      if (failure !== undefined) {
+        const kill = await this.quarantine(row);
+        throw new DeviceUnresponsiveError(
+          row.profile,
+          row.serial,
+          `${failure}; ${kill.evidence}`,
+          kill.freed,
+        );
+      }
+      return { serial: row.serial, profile: row.profile };
     });
   }
 

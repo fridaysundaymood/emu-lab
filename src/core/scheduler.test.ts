@@ -23,6 +23,7 @@ const host = Scheduler.prototype as unknown as {
   portFree(port: number): Promise<boolean>;
   provision(row: unknown): Promise<void>;
   verified(row: unknown): Promise<boolean>;
+  liveness(row: unknown): Promise<string | undefined>;
 };
 const schedulers: Scheduler[] = [];
 const roots: string[] = [];
@@ -31,6 +32,7 @@ beforeEach(() => {
   vi.spyOn(host, 'portFree').mockResolvedValue(true);
   vi.spyOn(host, 'provision').mockResolvedValue(undefined);
   vi.spyOn(host, 'verified').mockResolvedValue(true);
+  vi.spyOn(host, 'liveness').mockResolvedValue(undefined);
 });
 afterEach(async () => {
   for (const scheduler of schedulers.splice(0)) scheduler.close();

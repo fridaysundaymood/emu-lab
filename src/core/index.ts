@@ -15,7 +15,11 @@ import { classifyFailure } from './classifier.js';
 import { readConfig } from './config.js';
 import { doctor as inspectHost, maestroExecutable } from './doctor.js';
 import * as runners from './runners.js';
-import { HostLoadError, Scheduler } from './scheduler.js';
+import {
+  DeviceUnresponsiveError,
+  HostLoadError,
+  Scheduler,
+} from './scheduler.js';
 
 export { toolDefinitions } from '../mcp/index.js';
 export { pullArtifact } from './artifacts.js';
@@ -29,6 +33,42 @@ export { configSchema as configSectionSchema } from './config.js';
 export const supportedSchemaMajors = [1];
 export function doctor(args: Record<string, unknown> = {}): Promise<Result> {
   return dispatch('doctor', args);
+}
+
+type RunTarget = Record<string, unknown>;
+
+export async function deviceRun(
+  scheduler: Scheduler,
+  input: RunTarget,
+  run: (target: RunTarget) => Promise<unknown>,
+): Promise<unknown> {
+  let target = input;
+  let reacquired: { leaseId: string; serial: string } | undefined;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await scheduler.probe(
+        String(target.leaseId ?? ''),
+        typeof target.serial === 'string' ? target.serial : undefined,
+      );
+      const result = await run(target);
+      return reacquired && result && typeof result === 'object'
+        ? { ...result, reacquired }
+        : result;
+    } catch (error) {
+      if (!(error instanceof DeviceUnresponsiveError)) throw error;
+      const evidence = { reason: error.message, evidence: error.evidence };
+      if (!error.freed || attempt > 0)
+        return {
+          status: 'error',
+          classification: 'environment',
+          reason: error.message,
+          evidence: [evidence],
+        };
+      const fresh = await scheduler.lease({ profile: error.profile });
+      reacquired = { leaseId: fresh.leaseId, serial: fresh.serial };
+      target = { ...target, leaseId: fresh.leaseId, serial: fresh.serial };
+    }
+  }
 }
 
 export async function dispatch(
@@ -122,21 +162,29 @@ export async function dispatch(
         );
         break;
       case 'run-instrumentation':
-        result = await runners.runInstrumentation(
-          getScheduler(),
-          input as unknown as Parameters<typeof runners.runInstrumentation>[1],
+        result = await deviceRun(getScheduler(), input, (target) =>
+          runners.runInstrumentation(
+            getScheduler(),
+            target as unknown as Parameters<
+              typeof runners.runInstrumentation
+            >[1],
+          ),
         );
         break;
       case 'run-maestro':
-        result = await runners.runMaestro(
-          getScheduler(),
-          input as unknown as Parameters<typeof runners.runMaestro>[1],
+        result = await deviceRun(getScheduler(), input, (target) =>
+          runners.runMaestro(
+            getScheduler(),
+            target as unknown as Parameters<typeof runners.runMaestro>[1],
+          ),
         );
         break;
       case 'smoke-release':
-        result = await runners.smokeRelease(
-          getScheduler(),
-          input as unknown as Parameters<typeof runners.smokeRelease>[1],
+        result = await deviceRun(getScheduler(), input, (target) =>
+          runners.smokeRelease(
+            getScheduler(),
+            target as unknown as Parameters<typeof runners.smokeRelease>[1],
+          ),
         );
         break;
       case 'screen':
@@ -209,6 +257,10 @@ export async function dispatch(
     if (error instanceof HostLoadError) {
       classification = 'environment';
       evidence = [{ cpuLoad: error.cpuLoad, maxCpuLoad: error.maxCpuLoad }];
+    }
+    if (error instanceof DeviceUnresponsiveError) {
+      classification = 'environment';
+      evidence = [{ reason: error.message, evidence: error.evidence }];
     }
     console.error(
       JSON.stringify({
