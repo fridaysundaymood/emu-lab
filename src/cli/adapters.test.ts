@@ -1,7 +1,7 @@
 import type { Result } from '@android-kit/schema';
 import { exitCodeFor } from '@android-kit/schema';
 import { describe, expect, it } from 'vitest';
-import { callTool, tools } from '../mcp/index.js';
+import { callTool, toolDefinitions } from '../mcp/index.js';
 import { runCli } from './index.js';
 import { type Dispatcher, operations } from './operations.js';
 
@@ -20,7 +20,7 @@ const result: Result = {
 
 describe('CLI and MCP adapters', () => {
   it('exposes the same operations', () => {
-    expect(tools.map((tool) => tool.name)).toEqual(
+    expect(toolDefinitions().map((tool) => tool.name)).toEqual(
       operations.map(
         (operation) =>
           `emu_lab_${operation === 'lab-status' ? 'status' : operation.replaceAll('-', '_')}`,

@@ -99,10 +99,6 @@ export function toolDefinitions(
   }));
 }
 
-export const tools = toolDefinitions().map(
-  ({ handler: _handler, ...tool }) => tool,
-);
-
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
@@ -125,7 +121,9 @@ export function createServer(run?: Dispatcher): Server {
     { name: 'emu-lab', version: '1.0.0' },
     { capabilities: { tools: {} } },
   );
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: toolDefinitions().map(({ handler: _handler, ...tool }) => tool),
+  }));
   server.setRequestHandler(CallToolRequestSchema, async (request) =>
     callTool(request.params.name, request.params.arguments ?? {}, run),
   );
