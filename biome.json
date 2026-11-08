@@ -3,6 +3,6 @@
   "files": {
     "includes": ["**", "!**/dist", "!**/node_modules", "!package-lock.json"]
   },
-  "formatter": { "indentStyle": "space", "indentWidth": 2 },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineEnding": "lf" },
   "javascript": { "formatter": { "quoteStyle": "single" } }
 }
