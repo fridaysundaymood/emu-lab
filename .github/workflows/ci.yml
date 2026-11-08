@@ -29,9 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm install
-        working-directory: android-kit
-      - run: npm run build
+      - run: npm ci --workspace=@android-kit/schema && npm run build --workspace=@android-kit/schema
         working-directory: android-kit
       - run: npm ci
         working-directory: emu-lab
