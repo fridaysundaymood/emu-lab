@@ -48,11 +48,13 @@ it('runs a batch-file version probe from a path containing spaces', async () => 
   const { doctor } = await import('./doctor.js');
   const root = await mkdtemp(join(tmpdir(), 'maestro with space-'));
   const oldPath = process.env.MAESTRO_BIN;
+  const oldSearchPath = process.env.PATH;
   try {
     const bin = join(root, 'maestro.bat');
     await writeFile(bin, '@echo off\r\necho 2.11.0\r\n');
     process.env.MAESTRO_BIN = bin;
-    const result = await doctor({});
+    process.env.PATH = root;
+    const result = await doctor({ sdkRoot: join(root, 'missing-sdk') });
     expect(result.checks.find((c) => c.tool === 'maestro')).toMatchObject({
       available: true,
       version: '2.11.0',
@@ -60,6 +62,8 @@ it('runs a batch-file version probe from a path containing spaces', async () => 
   } finally {
     if (oldPath === undefined) delete process.env.MAESTRO_BIN;
     else process.env.MAESTRO_BIN = oldPath;
+    if (oldSearchPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldSearchPath;
     await rm(root, { recursive: true, force: true });
   }
 });
