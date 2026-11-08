@@ -17,6 +17,40 @@ flowchart LR
     Runners --> Emulator
 ```
 
+The scheduler stores a state per device, including devices in a group lease. A lease remains active until release or until both its expiry and heartbeat deadlines have passed; heartbeat renews both deadlines.
+
+```mermaid
+stateDiagram-v2
+    [*] --> provisioning: reserve
+    provisioning --> active: provision and liveness succeed
+    provisioning --> quarantined: liveness fails or owner lost on recovery
+    provisioning --> [*]: provisioning fails and cleanup succeeds
+    active --> active: heartbeat
+    active --> cleaning: release or both deadlines passed
+    active --> quarantined: liveness fails or ownership unverified on recovery
+    cleaning --> [*]: verified cleanup succeeds
+    cleaning --> quarantined: ownership or cleanup cannot be verified
+    quarantined --> [*]: dead process, owner marker and free ports verified
+```
+
+The failure classifier evaluates rules in descending precedence and returns the first match. The default rules distinguish environment, app and test failures; no match leaves the classification unset.
+
+```mermaid
+flowchart TD
+    Input[Log, hierarchy, facts and artifacts] --> Rules[Rules in descending precedence]
+    Rules --> Rerun{Isolated rerun passed?}
+    Rerun -->|Yes| Flaky[Test: flaky]
+    Rerun -->|No| Env{Environment rule matches?}
+    Env -->|Yes| Environment[Environment: fail]
+    Env -->|No| AppCrash{App ANR or crash matches?}
+    AppCrash -->|Yes| App[App: fail]
+    AppCrash -->|No| TestRule{Reset or changed-copy rule matches?}
+    TestRule -->|Yes| Test[Test: fail]
+    TestRule -->|No| Assertion{App assertion rule matches?}
+    Assertion -->|Yes| App
+    Assertion -->|No| Unknown[Fail: classification unset]
+```
+
 Install the published package with `npm install @budaknyenyel/emu-lab`, then run `npx emu-lab --help` or start `emu-lab-mcp` for MCP.
 
 ## Install from source
