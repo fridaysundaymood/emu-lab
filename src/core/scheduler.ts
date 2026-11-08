@@ -1,13 +1,14 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection, createServer } from 'node:net';
-import { cpus, freemem, homedir, tmpdir } from 'node:os';
+import { cpus, freemem, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
+import { collectDiagnostics } from './diagnostics.js';
 
 const exec = promisify(execFile);
 
@@ -100,6 +101,7 @@ export interface SchedulerOptions {
   denySerials?: string[];
   sdkRoot?: string;
   allowInstall?: boolean;
+  keepDiagnostics?: boolean;
   profiles?: Record<string, DeviceProfile>;
   bootTimeoutMs?: number;
   headless?: boolean;
@@ -161,6 +163,7 @@ export class Scheduler {
   private readonly onDiagnostics:
     | ((event: DiagnosticEvent) => void)
     | undefined;
+  private readonly keepDiagnostics: boolean;
   private readonly maxCpuLoad: number;
   private lastCpuLoad: number | null = null;
   private readonly ready: Promise<void>;
@@ -184,6 +187,7 @@ export class Scheduler {
       process.env.ANDROID_HOME ??
       '';
     this.allowInstall = options.allowInstall ?? false;
+    this.keepDiagnostics = options.keepDiagnostics ?? false;
     this.onDiagnostics = options.onDiagnostics;
     this.profiles = { ...defaultProfiles, ...options.profiles };
     this.bootTimeout = options.bootTimeoutMs ?? 300_000;
@@ -741,9 +745,13 @@ export class Scheduler {
           elapsedMs: Date.now() - started,
         });
       };
-      await mkdir(this.artifactDir, { recursive: true });
-      const logPath = join(tmpdir(), `emu-lab-${randomUUID()}.log`);
-      const log = await open(logPath, 'wx', 0o600);
+      const token = await readFile(
+        join(homedir(), '.emulator_console_auth_token'),
+        'utf8',
+      ).then(
+        (value) => value.trim(),
+        () => '',
+      );
       report(attempt ? 'cold_retry_start' : 'boot_start');
       const child = spawn(
         this.tool('emulator', 'emulator'),
@@ -761,38 +769,30 @@ export class Scheduler {
         {
           env: { ...process.env, ANDROID_AVD_HOME: this.home },
           detached: true,
-          stdio: ['ignore', log.fd, log.fd],
+          stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: this.headless,
         },
       );
-      await log.close();
+      const diagnosticOutput = collectDiagnostics(
+        [child.stdout, child.stderr],
+        token,
+      );
       child.unref();
       let exited = false;
       let adopted = false;
       let diagnostics = '';
       const emitDiagnostics = async () => {
+        diagnostics = diagnosticOutput();
+        if (this.keepDiagnostics) {
+          await mkdir(this.artifactDir, { recursive: true });
+          await writeFile(
+            join(this.artifactDir, `${row.id}-${attempt + 1}.log`),
+            diagnostics,
+            { mode: 0o600 },
+          );
+        }
         if (!this.onDiagnostics) return;
-        diagnostics = (await readFile(logPath, 'utf8').catch(() => '')).slice(
-          -16_384,
-        );
-        let token = '';
-        try {
-          token = (
-            await readFile(
-              join(homedir(), '.emulator_console_auth_token'),
-              'utf8',
-            )
-          ).trim();
-        } catch {}
-        const output = token
-          ? diagnostics
-              .split(token)
-              .join('[redacted]')
-              .replace(
-                /(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi,
-                '$1[redacted]',
-              )
-          : '[emulator output withheld: console token unavailable for redaction]';
+        const output = diagnostics;
         this.onDiagnostics({
           leaseId: row.lease_id,
           serial: row.serial,
@@ -1035,15 +1035,6 @@ export class Scheduler {
       report(exited ? 'process_exited' : 'boot_timeout');
       await emitDiagnostics();
       if (exited) await delay(100);
-      let token = '';
-      try {
-        token = (
-          await readFile(
-            join(homedir(), '.emulator_console_auth_token'),
-            'utf8',
-          )
-        ).trim();
-      } catch {}
       bootEvidence =
         `${exitDetails}\n${token ? healthEvidence.split(token).join('[redacted]') : healthEvidence}\n${token ? diagnostics.split(token).join('[redacted]') : '[emulator output withheld: console token unavailable for redaction]'}`.replace(
           /(auth(?:entication)?\s+token\s*[:=]\s*)\S+/gi,

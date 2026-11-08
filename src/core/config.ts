@@ -21,6 +21,7 @@ export const configSchema = {
     },
     sdkRoot: { type: 'string', minLength: 1 },
     allowInstall: { type: 'boolean' },
+    keepDiagnostics: { type: 'boolean' },
     databasePath: { type: 'string', minLength: 1 },
     maestroPath: { type: 'string', minLength: 1 },
     adbPath: { type: 'string', minLength: 1 },
@@ -68,6 +69,7 @@ export interface LabConfig {
   denySerials?: string[];
   sdkRoot?: string;
   allowInstall?: boolean;
+  keepDiagnostics?: boolean;
   databasePath?: string;
   maestroPath?: string;
   adbPath?: string;

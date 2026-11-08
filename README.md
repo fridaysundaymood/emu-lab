@@ -37,7 +37,10 @@ emuLab:
   budget: 1
   denySerials: []
   allowInstall: false
+  keepDiagnostics: false
 ```
+
+Set `keepDiagnostics: true` to retain redacted emulator boot diagnostics in the run artifacts. Output is withheld if the console authentication token cannot be read.
 
 Never use a lease to control an independently owned emulator. Host GPU support varies with drivers and headless environments; select the software profile explicitly if host GPU is unavailable. Linux requires accessible KVM, Windows requires supported WHPX/AEHD virtualization, and macOS requires HVF. Emulator console authentication must remain enabled. Use synthetic data only.
 
