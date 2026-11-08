@@ -2,6 +2,21 @@
 
 Android emulator testing with leased devices, cached builds, device-state controls and evidence-based failure classification. The package provides a Node 24 TypeScript library, CLI and tools-only MCP server. See [the implementation plan](IMPLEMENTATION_PLAN.md) for the full intended behavior and [the API guide](docs/api.md) for in-process use.
 
+The library, CLI and MCP server route operations through the shared core, which coordinates emulator leases and test execution.
+
+```mermaid
+flowchart LR
+    Library[Node library] --> Core[Core operations]
+    CLI[CLI] --> Core
+    MCP[MCP server] --> CLI
+    Core --> Scheduler[Lease scheduler]
+    Core --> Build[Build]
+    Core --> Runners[Device runners]
+    Core --> Classifier[Failure classifier]
+    Scheduler --> Emulator[Android emulator]
+    Runners --> Emulator
+```
+
 Install the published package with `npm install @budaknyenyel/emu-lab`, then run `npx emu-lab --help` or start `emu-lab-mcp` for MCP.
 
 ## Install from source
