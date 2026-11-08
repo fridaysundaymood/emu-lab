@@ -1,9 +1,16 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { type Dispatcher, invoke, operations } from '../cli/operations.js';
+import {
+  adapterError,
+  type Dispatcher,
+  invoke,
+  operations,
+} from '../cli/operations.js';
 
 const fields: Record<string, Record<string, string>> = {
   'lease-device': { profile: 'string', ttlMs: 'number', heartbeatMs: 'number' },
@@ -67,7 +74,6 @@ export function toolDefinitions(
       type: 'object' as const,
       properties: Object.fromEntries(
         Object.entries({
-          projectRoot: 'string',
           leaseId: 'string',
           serial: 'string',
           ...fields[operation],
@@ -76,28 +82,82 @@ export function toolDefinitions(
           type === 'array'
             ? { type, items: { type: 'string' } }
             : type === 'object'
-              ? { type, additionalProperties: true }
+              ? {
+                  type,
+                  additionalProperties: false,
+                  properties: {
+                    locale: { type: 'string' },
+                    fontScale: { type: 'number' },
+                    displaySize: { type: 'string' },
+                    density: { type: 'number' },
+                    clock: { type: 'string' },
+                    darkMode: { type: 'boolean' },
+                    batterySaver: { type: 'boolean' },
+                    rotation: { type: 'number' },
+                    network: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        speed: { type: 'string' },
+                        delay: { type: 'string' },
+                      },
+                    },
+                  },
+                }
               : type === 'string-or-number'
                 ? { anyOf: [{ type: 'string' }, { type: 'number' }] }
                 : { type },
         ]),
       ),
-      additionalProperties: true,
+      additionalProperties: false,
     },
-    handler: (input: Record<string, unknown>) =>
-      invoke(
-        operation,
-        {
-          ...(options.projectRoot === undefined
-            ? {}
-            : { projectRoot: options.projectRoot }),
-          ...(options.configPath === undefined
-            ? {}
-            : { configPath: options.configPath }),
-          ...input,
-        },
-        options.dispatcher,
-      ),
+    handler: async (input: Record<string, unknown>) => {
+      try {
+        const allowed = new Set([
+          'leaseId',
+          'serial',
+          ...Object.keys(fields[operation] ?? {}),
+        ]);
+        if (Object.keys(input).some((key) => !allowed.has(key)))
+          throw new Error('Unknown tool input property');
+        const root = await realpath(options.projectRoot ?? process.cwd());
+        const checked = { ...input };
+        for (const key of ['apk', 'testApk', 'flows']) {
+          const value = checked[key];
+          if (value === undefined) continue;
+          const paths = Array.isArray(value) ? value : [value];
+          const resolved = await Promise.all(
+            paths.map(async (path) => {
+              if (typeof path !== 'string')
+                throw new Error('Invalid file path');
+              const file = await realpath(resolve(root, path));
+              const part = relative(root, file);
+              if (
+                part === '..' ||
+                part.startsWith(`..${sep}`) ||
+                isAbsolute(part)
+              )
+                throw new Error('File path must be inside the project root');
+              return file;
+            }),
+          );
+          checked[key] = Array.isArray(value) ? resolved : resolved[0];
+        }
+        return await invoke(
+          operation,
+          {
+            ...checked,
+            projectRoot: root,
+            ...(options.configPath === undefined
+              ? {}
+              : { configPath: options.configPath }),
+          },
+          options.dispatcher,
+        );
+      } catch (error) {
+        return adapterError(operation, error);
+      }
+    },
   }));
 }
 
@@ -120,7 +180,7 @@ export async function callTool(
 
 export function createServer(run?: Dispatcher): Server {
   const server = new Server(
-    { name: 'emu-lab', version: '1.0.0' },
+    { name: 'emu-lab', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({

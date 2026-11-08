@@ -20,7 +20,7 @@ const { Scheduler } = await import('../dist/core/scheduler.js');
 const { build } = await import('../dist/core/build.js');
 const { install, smokeRelease } = await import('../dist/core/runners.js');
 const { runArtifactDir, writeArtifactIndex } = await import(
-  '@android-kit/schema'
+  '@budaknyenyel/kit-schema'
 );
 const runId = randomUUID();
 const output = runArtifactDir(fixture, runId, 'emu-lab');

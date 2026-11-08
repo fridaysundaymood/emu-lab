@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 describe('public API', () => {
@@ -23,15 +24,18 @@ describe('public API', () => {
     const dispatcher = vi.fn().mockResolvedValue({ status: 'pass' });
     const tool = api
       .toolDefinitions({
-        projectRoot: 'root',
+        projectRoot: process.cwd(),
         configPath: 'kit.yaml',
         dispatcher,
       })
       .find((entry) => entry.name === 'emu_lab_doctor');
     expect(tool).toBeDefined();
-    await tool?.handler({ projectRoot: 'override' });
+    expect((await tool?.handler({ projectRoot: 'override' }))?.status).toBe(
+      'error',
+    );
+    await tool?.handler({});
     expect(dispatcher).toHaveBeenCalledWith('doctor', {
-      projectRoot: 'override',
+      projectRoot: realpathSync(process.cwd()),
       configPath: 'kit.yaml',
     });
   }, 30000);

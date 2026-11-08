@@ -19,3 +19,10 @@ local.properties
 *.avd/
 .DS_Store
 Thumbs.db
+.kotlin/
+.idea/
+.vscode/
+*.jks
+*.keystore
+*.pem
+*.p12

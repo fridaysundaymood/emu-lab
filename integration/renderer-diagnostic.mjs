@@ -17,7 +17,7 @@ const { Scheduler, defaultProfiles } = await import(
   '../dist/core/scheduler.js'
 );
 const { runArtifactDir, writeArtifactIndex } = await import(
-  '@android-kit/schema'
+  '@budaknyenyel/kit-schema'
 );
 const sdk = process.env.ANDROID_SDK_ROOT ?? process.env.ANDROID_HOME;
 if (!sdk) throw new Error('Set ANDROID_SDK_ROOT or ANDROID_HOME');

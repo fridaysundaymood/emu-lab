@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { exitCodeFor, type Result } from '@android-kit/schema';
+import { exitCodeFor, type Result } from '@budaknyenyel/kit-schema';
 import {
   adapterError,
   type Dispatcher,
@@ -81,5 +82,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   process.exitCode = exitCodeFor(result.status);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+)
   void main();

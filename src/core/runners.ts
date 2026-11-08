@@ -460,6 +460,10 @@ export async function runInstrumentation(
     timeoutMs?: number;
   },
 ) {
+  if (!/^[\w.]+\/[\w.$]+$/.test(args.runner))
+    throw new Error('Invalid instrumentation runner');
+  if (args.filter !== undefined && !/^[\w.$]+(?:#\w+)?$/.test(args.filter))
+    throw new Error('Invalid instrumentation filter');
   if (args.apk) await install(auth, { ...args, apk: args.apk });
   if (args.testApk)
     checked(
@@ -678,6 +682,8 @@ export async function smokeRelease(
   auth: LeaseAuthorizer,
   args: RunnerArgs & { activity?: string },
 ) {
+  if (args.activity !== undefined && !/^[\w.$]+$/.test(args.activity))
+    throw new Error('Invalid activity');
   const ready = await prepare(auth, args);
   if (ready.status !== 'pass') return ready;
   const since = new Date().toISOString().replace('T', ' ').replace('Z', '');

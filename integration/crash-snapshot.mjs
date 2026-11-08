@@ -48,7 +48,7 @@ if (process.argv[2] === '--lease-child') {
   }
 } else {
   const { runArtifactDir, writeArtifactIndex } = await import(
-    '@android-kit/schema'
+    '@budaknyenyel/kit-schema'
   );
   const fixture = resolve(dirname(script), '../../kit-fixture-app');
   const runId = randomUUID();

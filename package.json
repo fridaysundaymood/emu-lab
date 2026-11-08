@@ -1,6 +1,25 @@
 {
-  "name": "@android-kit/emu-lab",
-  "version": "1.0.0",
+  "name": "@budaknyenyel/emu-lab",
+  "version": "0.1.0",
+  "description": "Leased Android emulator testing, CLI and MCP server",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fridaysundaymood/emu-lab.git"
+  },
+  "homepage": "https://github.com/fridaysundaymood/emu-lab#readme",
+  "bugs": {
+    "url": "https://github.com/fridaysundaymood/emu-lab/issues"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": "./dist/core/index.js",
   "types": "./dist/core/index.d.ts",
@@ -14,10 +33,11 @@
   "scripts": {
     "lint": "biome check .",
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@android-kit/schema": "file:../android-kit/packages/kit-schema",
+    "@budaknyenyel/kit-schema": "file:../android-kit/packages/kit-schema",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"

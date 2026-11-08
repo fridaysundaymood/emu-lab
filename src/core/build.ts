@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { runArtifactDir, writeArtifactIndex } from '@android-kit/schema';
+import { runArtifactDir, writeArtifactIndex } from '@budaknyenyel/kit-schema';
 
 const execFile = promisify(execFileCallback);
 export interface BuildOptions {

@@ -69,6 +69,27 @@ if (args.includes('screencap')) process.stdout.write(Buffer.from('fake-png'));
   };
 }
 
+it('rejects shell metacharacters before issuing device commands', async () => {
+  const args = {
+    leaseId: 'lease-1',
+    packageName: 'com.example.app',
+    artifactDir: 'unused',
+  };
+  await expect(
+    runInstrumentation(authorizer(), { ...args, runner: 'x/y;id' }),
+  ).rejects.toThrow('runner');
+  await expect(
+    runInstrumentation(authorizer(), {
+      ...args,
+      runner: 'x/y',
+      filter: 'x;id',
+    }),
+  ).rejects.toThrow('filter');
+  await expect(
+    smokeRelease(authorizer(), { ...args, activity: '.Main;id' }),
+  ).rejects.toThrow('activity');
+});
+
 it('fails instrumentation reporting zero tests and writes its XML report', async () => {
   const f = await fixture();
   try {

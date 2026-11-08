@@ -1,4 +1,4 @@
-import { createResult, newRunId, type Result } from '@android-kit/schema';
+import { createResult, newRunId, type Result } from '@budaknyenyel/kit-schema';
 import { dispatch } from '../core/index.js';
 
 export const operations = [

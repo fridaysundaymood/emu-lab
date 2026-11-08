@@ -22,7 +22,7 @@ const { install, logcat, runInstrumentation, runMaestro } = await import(
 const { classifyFailure } = await import('../dist/core/classifier.js');
 const { build } = await import('../dist/core/build.js');
 const { runArtifactDir, writeArtifactIndex } = await import(
-  '@android-kit/schema'
+  '@budaknyenyel/kit-schema'
 );
 const runId = randomUUID();
 const builds = {};

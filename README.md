@@ -2,6 +2,8 @@
 
 Android emulator testing with leased devices, cached builds, device-state controls and evidence-based failure classification. The package provides a Node 24 TypeScript library, CLI and tools-only MCP server. See [the implementation plan](IMPLEMENTATION_PLAN.md) for the full intended behavior and [the API guide](docs/api.md) for in-process use.
 
+Install the published package with `npm install @budaknyenyel/emu-lab`, then run `npx emu-lab --help` or start `emu-lab-mcp` for MCP.
+
 ## Install from source
 
 Clone `android-kit` and `emu-lab` as sibling directories. In `android-kit`, run `npm install && npm run build`. In `emu-lab`, run `npm install && npm run build`. Android SDK tools, a compatible system image, JDK 21, hardware virtualization and Maestro 2.12.x are required for device workflows. `JAVA_HOME` must select JDK 21 for builds that target Java 21.
@@ -22,7 +24,7 @@ A generic MCP client can start the stdio server with an entry such as:
   "mcpServers": {
     "emu-lab": {
       "command": "node",
-      "args": ["/path/to/emu-lab/dist/mcp/index.js"]
+      "args": ["/path/to/emu-lab/dist/mcp/bin.js"]
     }
   }
 }

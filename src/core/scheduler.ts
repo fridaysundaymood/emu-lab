@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection, createServer } from 'node:net';
-import { cpus, freemem, homedir } from 'node:os';
+import { cpus, freemem, homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -742,8 +742,8 @@ export class Scheduler {
         });
       };
       await mkdir(this.artifactDir, { recursive: true });
-      const logPath = join(this.artifactDir, `${row.id}-${attempt + 1}.log`);
-      const log = await open(logPath, 'a');
+      const logPath = join(tmpdir(), `emu-lab-${randomUUID()}.log`);
+      const log = await open(logPath, 'wx', 0o600);
       report(attempt ? 'cold_retry_start' : 'boot_start');
       const child = spawn(
         this.tool('emulator', 'emulator'),

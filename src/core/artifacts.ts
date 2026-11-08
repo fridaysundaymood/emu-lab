@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { copyFile, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
-import { runArtifactDir } from '@android-kit/schema';
+import { runArtifactDir } from '@budaknyenyel/kit-schema';
 
 function inside(directory: string, path: string): boolean {
   const part = relative(directory, path);

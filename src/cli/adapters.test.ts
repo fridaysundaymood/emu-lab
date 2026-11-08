@@ -1,5 +1,9 @@
-import type { Result } from '@android-kit/schema';
-import { exitCodeFor } from '@android-kit/schema';
+import { realpathSync } from 'node:fs';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Result } from '@budaknyenyel/kit-schema';
+import { exitCodeFor } from '@budaknyenyel/kit-schema';
 import { describe, expect, it } from 'vitest';
 import { callTool, toolDefinitions } from '../mcp/index.js';
 import { runCli } from './index.js';
@@ -56,9 +60,47 @@ describe('CLI and MCP adapters', () => {
     const mcp = await callTool('emu_lab_reverse', args, dispatch);
     expect(calls).toEqual([
       { operation: 'reverse', args },
-      { operation: 'reverse', args },
+      {
+        operation: 'reverse',
+        args: { ...args, projectRoot: realpathSync(process.cwd()) },
+      },
     ]);
     expect(JSON.parse(mcp.content[0]!.text)).toEqual(cli);
+  });
+
+  it('rejects caller overrides of launch configuration and executable paths', async () => {
+    const handler = toolDefinitions({
+      projectRoot: process.cwd(),
+      configPath: 'fixed.yaml',
+    }).find((tool) => tool.name === 'emu_lab_install')!;
+    expect(handler.inputSchema.additionalProperties).toBe(false);
+    for (const input of [
+      { projectRoot: '..' },
+      { configPath: 'other.yaml' },
+      { apksigner: 'evil' },
+      { sdkRoot: 'evil' },
+    ]) {
+      expect((await handler.handler(input)).status).toBe('error');
+    }
+  });
+
+  it('rejects paths escaping through symlinks', async () => {
+    if (process.platform === 'win32') return;
+    const root = await mkdtemp(join(tmpdir(), 'emu-root-'));
+    const outside = await mkdtemp(join(tmpdir(), 'emu-outside-'));
+    try {
+      await writeFile(join(outside, 'app.apk'), '');
+      await symlink(outside, join(root, 'link'));
+      const handler = toolDefinitions({ projectRoot: root }).find(
+        (tool) => tool.name === 'emu_lab_install',
+      )!;
+      expect((await handler.handler({ apk: 'link/app.apk' })).status).toBe(
+        'error',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('maps all result statuses to the documented exit codes', () => {

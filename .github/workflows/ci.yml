@@ -1,5 +1,7 @@
 name: CI
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   fork-notice:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
@@ -14,23 +16,19 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           path: emu-lab
-      - uses: actions/checkout@v4
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: fridaysundaymood/android-kit
           path: android-kit
-          ssh-key: ${{ secrets.DEPLOY_KEY_ANDROID_KIT }}
-      - uses: actions/checkout@v4
-        with:
-          repository: fridaysundaymood/kit-fixture-app
-          path: kit-fixture-app
-          ssh-key: ${{ secrets.DEPLOY_KEY_KIT_FIXTURE_APP }}
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-      - run: npm ci --include-workspace-root --workspace=@android-kit/schema && npm run build --workspace=@android-kit/schema
+      - run: npm ci --include-workspace-root --workspace=@budaknyenyel/kit-schema && npm run build --workspace=@budaknyenyel/kit-schema
         working-directory: android-kit
       - run: npm ci
         working-directory: emu-lab

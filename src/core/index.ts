@@ -8,7 +8,7 @@ import {
   runArtifactDir,
   type Status,
   writeArtifactIndex,
-} from '@android-kit/schema';
+} from '@budaknyenyel/kit-schema';
 import { pullArtifact } from './artifacts.js';
 import { build } from './build.js';
 import { classifyFailure } from './classifier.js';
@@ -103,6 +103,8 @@ export async function dispatch(
     const input = {
       ...args,
       adb: config.adbPath,
+      apksigner: config.apksignerPath,
+      sdkRoot: config.sdkRoot,
       maestro: await maestroExecutable(config),
       artifactDir,
     };
@@ -135,6 +137,7 @@ export async function dispatch(
           ...config.build,
           ...args,
           projectRoot: root,
+          sdkRoot: config.sdkRoot,
           runId,
         } as unknown as Parameters<typeof build>[0]);
         break;

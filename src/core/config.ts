@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { loadConfig } from '@android-kit/schema';
+import { loadConfig } from '@budaknyenyel/kit-schema';
 import type { DeviceProfile } from './scheduler.js';
 
 export const configSchema = {
@@ -24,6 +24,7 @@ export const configSchema = {
     databasePath: { type: 'string', minLength: 1 },
     maestroPath: { type: 'string', minLength: 1 },
     adbPath: { type: 'string', minLength: 1 },
+    apksignerPath: { type: 'string', minLength: 1 },
     bootTimeoutMs: { type: 'integer', minimum: 1 },
     headless: { type: 'boolean' },
     maxCpuLoad: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
@@ -70,6 +71,7 @@ export interface LabConfig {
   databasePath?: string;
   maestroPath?: string;
   adbPath?: string;
+  apksignerPath?: string;
   bootTimeoutMs?: number;
   headless?: boolean;
   maxCpuLoad?: number;
